@@ -13,10 +13,10 @@ return [
     | Migrated from Cognito to Keycloak (realm "master" on
     | https://wpiauth.joeterranova.net). Only `iss`/`jwks` changed here.
     |
-    | NOTE: the JWKS below is bundled from the realm's certs endpoint
-    | (/realms/master/protocol/openid-connect/certs). Keycloak rotates signing
-    | keys, so when the realm's active `kid` changes, verification will 403
-    | until this is refreshed. Prefer fetching/caching the JWKS at runtime.
+    | The JWKS is fetched and cached from the realm's certs endpoint at runtime
+    | (see `jwks_uri` below), so Keycloak signing-key rotation is picked up
+    | automatically. The bundled `jwks` set is only an offline fallback used
+    | when the IdP is unreachable.
     |
     */
 
@@ -30,11 +30,26 @@ return [
     'max_age' => '1 day',
 
     /*
-    | Public JWKS. Not secret. Bundled from the Keycloak realm's certs endpoint;
-    | only the RS256 signing key (use: sig) is needed for verification. May
-    | later be fetched/cached from the IdP's well-known endpoint instead of
-    | being bundled; override the whole set via a runtime loader if
-    | COGNITO_JWKS_PATH is introduced.
+    | JWKS endpoint (the IdP's public signing keys). Fetched and cached at
+    | runtime by CognitoVerifier, which refetches when a token's `kid` is not
+    | found in the cached set (i.e. after Keycloak rotates keys). Defaults to
+    | the Keycloak realm's OIDC certs endpoint derived from `iss`; override with
+    | COGNITO_JWKS_PATH. Set it empty to disable the fetch and use the bundled
+    | `jwks` below only.
+    */
+    'jwks_uri' => env(
+        'COGNITO_JWKS_PATH',
+        rtrim(env('COGNITO_TOKEN_ISS', 'https://wpiauth.joeterranova.net/realms/master'), '/').'/protocol/openid-connect/certs'
+    ),
+
+    // How long (seconds) to cache the fetched JWKS before refetching.
+    'jwks_cache_ttl' => (int) env('COGNITO_JWKS_TTL', 3600),
+
+    /*
+    | Public JWKS. Not secret. Offline fallback only: used when `jwks_uri` is
+    | empty or the IdP cannot be reached. Bundled from the Keycloak realm's
+    | certs endpoint; only the RS256 signing key (use: sig) is needed. Will go
+    | stale when Keycloak rotates keys, so keep `jwks_uri` set in production.
     */
     'jwks' => [
         'keys' => [

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\CharacterController;
 use App\Http\Controllers\Api\V1\OfficeController;
 use App\Http\Controllers\Api\V1\OrgUnitController;
 use App\Http\Controllers\Api\V1\UserController;
@@ -88,4 +89,14 @@ Route::prefix('user')->group(function () {
 
     Route::get('/{id}', [UserController::class, 'show'])->middleware('cognito');
     Route::put('/{id}', [UserController::class, 'update'])->middleware(['cognito', 'member']);
+});
+
+/*
+| Characters (Character Plan.md). Scoped to the acting user: list/create/read
+| your own characters. Any authenticated user (player) qualifies — no member gate.
+*/
+Route::prefix('character')->group(function () {
+    Route::get('/', [CharacterController::class, 'index'])->middleware('cognito');
+    Route::post('/', [CharacterController::class, 'store'])->middleware('cognito');
+    Route::get('/{id}', [CharacterController::class, 'show'])->whereNumber('id')->middleware('cognito');
 });

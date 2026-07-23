@@ -224,6 +224,8 @@ class AuthMiddlewareTest extends TestCase
         $iss = 'https://test-issuer.example.com';
 
         config([
+            // No jwks_uri: verify against the bundled test key, not a live IdP.
+            'cognito.jwks_uri' => null,
             'cognito.jwks' => ['keys' => [$jwk->toPublic()->all()]],
             'cognito.kid' => 'test-key',
             'cognito.iss' => $iss,

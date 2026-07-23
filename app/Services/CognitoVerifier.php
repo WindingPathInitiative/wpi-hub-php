@@ -3,6 +3,9 @@
 namespace App\Services;
 
 use App\Exceptions\UserException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Jose\Component\Core\JWK;
 use Jose\Component\Core\AlgorithmManager;
 use Jose\Component\Core\JWKSet;
 use Jose\Component\Signature\Algorithm\RS256;
@@ -22,8 +25,6 @@ class CognitoVerifier
 {
     public function verify(string $token): array
     {
-        $jwks = JWKSet::createFromKeyData(config('cognito.jwks'));
-
         try {
             $jws = (new CompactSerializer)->unserialize($token);
         } catch (Throwable $e) {
@@ -36,9 +37,14 @@ class CognitoVerifier
             throw new UserException('Invalid jwt', 403);
         }
 
-        $key = isset($header['kid'])
-            ? $jwks->selectKey('sig', new RS256, ['kid' => $header['kid']])
-            : null;
+        $kid = $header['kid'] ?? null;
+        if ($kid === null) {
+            throw new UserException('Invalid jwt', 403);
+        }
+
+        // Try the cached JWKS first; if the key is unknown, Keycloak has likely
+        // rotated its signing keys, so refetch once before giving up.
+        $key = $this->selectKey($kid, false) ?? $this->selectKey($kid, true);
 
         if ($key === null) {
             throw new UserException('Invalid jwt', 403);
@@ -57,6 +63,51 @@ class CognitoVerifier
         $this->assertClaims($claims);
 
         return $claims;
+    }
+
+    /**
+     * Match a signing key by `kid` in the current JWKS, optionally forcing a
+     * fresh fetch from the IdP (bypassing the cache) to pick up key rotation.
+     */
+    private function selectKey(string $kid, bool $forceRefresh): ?JWK
+    {
+        $jwks = JWKSet::createFromKeyData($this->loadJwks($forceRefresh));
+
+        return $jwks->selectKey('sig', new RS256, ['kid' => $kid]);
+    }
+
+    /**
+     * Load the JWKS. When `cognito.jwks_uri` is set it is fetched from the IdP
+     * and cached for `cognito.jwks_cache_ttl` seconds; the bundled
+     * `cognito.jwks` is used as a fallback when no URI is configured or the IdP
+     * cannot be reached.
+     */
+    private function loadJwks(bool $forceRefresh = false): array
+    {
+        $uri = config('cognito.jwks_uri');
+
+        if (! $uri) {
+            return config('cognito.jwks');
+        }
+
+        if ($forceRefresh) {
+            Cache::forget('cognito.jwks');
+        }
+
+        try {
+            return Cache::remember('cognito.jwks', (int) config('cognito.jwks_cache_ttl', 3600), function () use ($uri) {
+                $keys = Http::timeout(5)->get($uri)->throw()->json();
+
+                if (! is_array($keys) || empty($keys['keys'])) {
+                    throw new \RuntimeException("Malformed JWKS from {$uri}");
+                }
+
+                return $keys;
+            });
+        } catch (Throwable $e) {
+            // IdP unreachable or returned garbage: fall back to bundled keys.
+            return config('cognito.jwks');
+        }
     }
 
     /**
