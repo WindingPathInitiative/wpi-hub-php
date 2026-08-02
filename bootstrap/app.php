@@ -3,6 +3,7 @@
 use App\Exceptions\UserException;
 use App\Http\Middleware\AuthenticateCognito;
 use App\Http\Middleware\EnsureMember;
+use App\Http\Middleware\EnsureStoryteller;
 use App\Http\Middleware\InternalOnly;
 use App\Http\Middleware\PresetOffice;
 use Illuminate\Foundation\Application;
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'cognito' => AuthenticateCognito::class, // token.parse/validate
             'member' => EnsureMember::class,          // token.expired
             'internal' => InternalOnly::class,        // network.internal (shared secret)
+            'storyteller' => EnsureStoryteller::class, // character_approve over the target unit
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

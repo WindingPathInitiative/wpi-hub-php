@@ -67,6 +67,7 @@ return [
         'checkin_event_checkin' => 'Check in members to an event',
         'checkin_event_attendance' => 'View full attendance information for an event',
         'checkin_event_finance' => 'View financial information for an event',
+        'character_approve' => 'Run character cycles and approve advancements and downtimes',
     ],
 
     // templates.json — default offices created per org-unit type.
@@ -105,7 +106,7 @@ return [
                 'roles' => [
                     'user_read_private', 'org_update', 'office_create_own_assistants', 'office_update',
                     'view_vip', 'nominate_vip', 'checkin_event_create', 'checkin_event_update',
-                    'checkin_event_checkin', 'checkin_event_attendance',
+                    'checkin_event_checkin', 'checkin_event_attendance', 'character_approve',
                 ],
             ],
         ],
