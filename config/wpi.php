@@ -131,11 +131,8 @@ return [
 
     // venues.json — venue catalogue.
     'venues' => [
-        ['id' => 'BnBVtM', 'name' => 'Blood & Betrayal Vampire the Masquerade', 'type' => 'Nationally Supported', 'wod' => true, 'suffix' => false],
-        ['id' => 'BnBWtA', 'name' => 'Blood & Betrayal Werewolf the Apocalypse', 'type' => 'Nationally Supported', 'wod' => true, 'suffix' => false],
-        ['id' => 'BnBCtD', 'name' => 'Blood & Betrayal Changeling the Dreaming', 'type' => 'Nationally Supported', 'wod' => true, 'suffix' => false],
-        ['id' => 'Huldufolk', 'name' => 'Huldufólk: The Hidden People', 'type' => 'Nationally Directed', 'wod' => false, 'suffix' => false],
-        ['id' => 'AbandonSky', 'name' => 'Abandon Sky', 'type' => 'Nationally Directed', 'wod' => false, 'suffix' => false],
+        ['id' => 'VtM', 'name' => 'Blood & Betrayal Vampire the Masquerade', 'type' => 'Nationally Supported', 'wod' => true, 'suffix' => false],
+        ['id' => 'Sporebound', 'name' => 'Sporebound', 'type' => 'Nationally Directed', 'wod' => false, 'suffix' => false],
         ['id' => 'ChapterInterest', 'name' => 'Chapter Interest', 'type' => 'Chapter Interest', 'wod' => true, 'suffix' => true],
     ],
 

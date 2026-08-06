@@ -28,7 +28,13 @@ class OrgUnitTest extends FeatureTestCase
 
     public function test_venues_and_organizations_are_public(): void
     {
-        $this->getJson('/v1/org-unit/venues')->assertOk()->assertJsonCount(6);
+        $venues = $this->getJson('/v1/org-unit/venues')->assertOk()->json();
+
+        // The route serves the catalogue verbatim, so assert that rather than a
+        // fixed length — the catalogue is edited whenever a venue is retired.
+        $this->assertSame(array_column(config('wpi.venues'), 'id'), array_column($venues, 'id'));
+        $this->assertContains('Sporebound', array_column($venues, 'id'));
+
         $this->getJson('/v1/org-unit/organizations')->assertOk()->assertJsonPath('0.id', 'WPI');
     }
 
@@ -110,6 +116,51 @@ class OrgUnitTest extends FeatureTestCase
         // org 4 path "1.3.4": ancestors [1,3].
         $this->assertCount(1, $this->getJsonAs(5, '/v1/org-unit/4?parents=1')->json('parents'));
         $this->assertCount(2, $this->getJsonAs(5, '/v1/org-unit/4?parents=2')->json('parents'));
+    }
+
+    public function test_venue_filter_narrows_children_to_one_venue_type(): void
+    {
+        $this->markOnlyVenue4Sporebound();
+
+        // org 3 path "1.3": venues 4 and 5 hang directly under it.
+        $res = $this->getJsonAs(5, '/v1/org-unit/3?venue=Sporebound')->assertOk();
+        $this->assertSame([4], array_column($res->json('children'), 'id'));
+
+        // Unfiltered, both are still there.
+        $this->assertCount(2, $this->getJsonAs(5, '/v1/org-unit/3')->json('children'));
+    }
+
+    public function test_venue_filter_is_case_insensitive_and_keeps_the_branch(): void
+    {
+        $this->markOnlyVenue4Sporebound();
+
+        // From the Nation, chapter 3 must survive as the branch holding venue 4.
+        $res = $this->getJsonAs(5, '/v1/org-unit/1?venue=sporebound')->assertOk();
+
+        $this->assertSame([4], $this->venueIdsIn($res->json('children')));
+    }
+
+    /** Leaves exactly one Sporebound venue (org 4) so assertions are exact. */
+    private function markOnlyVenue4Sporebound(): void
+    {
+        OrgUnit::where('type', 'Venue')->update(['venueType' => 'VtM']);
+        OrgUnit::whereKey(4)->update(['venueType' => 'Sporebound']);
+    }
+
+    /**
+     * @return int[]
+     */
+    private function venueIdsIn(array $nodes): array
+    {
+        $ids = [];
+        foreach ($nodes as $node) {
+            if (($node['type'] ?? null) === 'Venue') {
+                $ids[] = $node['id'];
+            }
+            $ids = array_merge($ids, $this->venueIdsIn($node['children'] ?? []));
+        }
+
+        return $ids;
     }
 
     // --- PUT update -------------------------------------------------------

@@ -123,6 +123,10 @@ class OrgUnitController extends Controller
 
     /**
      * Returns a unit with its users, offices, and parent/child chain.
+     *
+     * `?venue=<venueType>` narrows the children chain to Venues of that type
+     * (see splitChain) — how a single-venue client such as Sporebound asks for
+     * only the games it runs. Omitted, the chain is unfiltered as before.
      */
     public function show(Request $request, string $id)
     {
@@ -375,10 +379,19 @@ class OrgUnitController extends Controller
     private function splitChain(OrgUnit $unit, Request $request): array
     {
         $parentIds = $unit->parents();
+        $venue = $request->query('venue');
         $parents = [];
         $children = [];
 
         foreach ($unit->getChain() as $node) {
+            // Only Venues carry a venueType, so the filter can't apply to the
+            // Chapters/Regions between here and them; they stay as (possibly
+            // empty) branches so sortChain still nests the survivors correctly.
+            if (filled($venue) && $node->type === 'Venue'
+                && strcasecmp((string) $node->venueType, (string) $venue) !== 0) {
+                continue;
+            }
+
             $json = (new OrgUnitResource($node))->full()->toArray($request);
             if (in_array($node->id, $parentIds, true)) {
                 $parents[] = $json;
