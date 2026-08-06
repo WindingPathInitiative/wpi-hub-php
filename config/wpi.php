@@ -67,6 +67,7 @@ return [
         'checkin_event_checkin' => 'Check in members to an event',
         'checkin_event_attendance' => 'View full attendance information for an event',
         'checkin_event_finance' => 'View financial information for an event',
+        'character_approve' => 'Run character cycles and approve advancements and downtimes',
     ],
 
     // templates.json — default offices created per org-unit type.
@@ -105,7 +106,7 @@ return [
                 'roles' => [
                     'user_read_private', 'org_update', 'office_create_own_assistants', 'office_update',
                     'view_vip', 'nominate_vip', 'checkin_event_create', 'checkin_event_update',
-                    'checkin_event_checkin', 'checkin_event_attendance',
+                    'checkin_event_checkin', 'checkin_event_attendance', 'character_approve',
                 ],
             ],
         ],
@@ -130,11 +131,8 @@ return [
 
     // venues.json — venue catalogue.
     'venues' => [
-        ['id' => 'BnBVtM', 'name' => 'Blood & Betrayal Vampire the Masquerade', 'type' => 'Nationally Supported', 'wod' => true, 'suffix' => false],
-        ['id' => 'BnBWtA', 'name' => 'Blood & Betrayal Werewolf the Apocalypse', 'type' => 'Nationally Supported', 'wod' => true, 'suffix' => false],
-        ['id' => 'BnBCtD', 'name' => 'Blood & Betrayal Changeling the Dreaming', 'type' => 'Nationally Supported', 'wod' => true, 'suffix' => false],
-        ['id' => 'Huldufolk', 'name' => 'Huldufólk: The Hidden People', 'type' => 'Nationally Directed', 'wod' => false, 'suffix' => false],
-        ['id' => 'AbandonSky', 'name' => 'Abandon Sky', 'type' => 'Nationally Directed', 'wod' => false, 'suffix' => false],
+        ['id' => 'VtM', 'name' => 'Blood & Betrayal Vampire the Masquerade', 'type' => 'Nationally Supported', 'wod' => true, 'suffix' => false],
+        ['id' => 'Sporebound', 'name' => 'Sporebound', 'type' => 'Nationally Directed', 'wod' => false, 'suffix' => false],
         ['id' => 'ChapterInterest', 'name' => 'Chapter Interest', 'type' => 'Chapter Interest', 'wod' => true, 'suffix' => true],
     ],
 

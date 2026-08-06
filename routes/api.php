@@ -1,8 +1,10 @@
 <?php
 
 use App\Http\Controllers\Api\V1\CharacterController;
+use App\Http\Controllers\Api\V1\CycleController;
 use App\Http\Controllers\Api\V1\OfficeController;
 use App\Http\Controllers\Api\V1\OrgUnitController;
+use App\Http\Controllers\Api\V1\SubmissionController;
 use App\Http\Controllers\Api\V1\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -92,11 +94,55 @@ Route::prefix('user')->group(function () {
 });
 
 /*
-| Characters (Character Plan.md). Scoped to the acting user: list/create/read
-| your own characters. Any authenticated user (player) qualifies — no member gate.
+| Characters and the advancement/downtime cycle (sporebound-character
+| "advancedments-plan.md"). Player routes are scoped to the acting user; any
+| authenticated user (player) qualifies — no member gate. Storyteller routes
+| additionally require `character_approve` over the character's game.
 */
-Route::prefix('character')->group(function () {
-    Route::get('/', [CharacterController::class, 'index'])->middleware('cognito');
-    Route::post('/', [CharacterController::class, 'store'])->middleware('cognito');
-    Route::get('/{id}', [CharacterController::class, 'show'])->whereNumber('id')->middleware('cognito');
+Route::prefix('character')->middleware('cognito')->group(function () {
+    Route::get('/', [CharacterController::class, 'index']);
+    Route::post('/', [CharacterController::class, 'store']);
+
+    Route::get('/{id}', [CharacterController::class, 'show'])->whereNumber('id');
+    Route::put('/{id}', [CharacterController::class, 'update'])->whereNumber('id');
+
+    // Either the owner or a storyteller for the game (checked in-controller).
+    Route::put('/{id}/retire', [CharacterController::class, 'retire'])->whereNumber('id');
+    Route::put('/{id}/unretire', [CharacterController::class, 'unretire'])->whereNumber('id');
+
+    Route::post('/{id}/submission', [SubmissionController::class, 'store'])->whereNumber('id');
+    Route::put('/{id}/submission/{sid}', [SubmissionController::class, 'update'])
+        ->whereNumber('id')->whereNumber('sid');
+    Route::delete('/{id}/submission/{sid}', [SubmissionController::class, 'destroy'])
+        ->whereNumber('id')->whereNumber('sid');
+    Route::post('/{id}/submission/{sid}/submit', [SubmissionController::class, 'submit'])
+        ->whereNumber('id')->whereNumber('sid');
+
+    // Storyteller direct edits ({character} is what EnsureStoryteller scopes on).
+    Route::post('/{character}/anchor', [CharacterController::class, 'addAnchor'])
+        ->whereNumber('character')->middleware('storyteller');
+    Route::delete('/{character}/anchor/{anchorId}', [CharacterController::class, 'removeAnchor'])
+        ->whereNumber('character')->middleware('storyteller');
+});
+
+/*
+| Cycles and the storyteller queue, hung off the org unit that runs the game.
+| Listing cycles is open to players (they need budgets and downtime deadlines).
+*/
+Route::prefix('org-unit/{unit}')->whereNumber('unit')->middleware('cognito')->group(function () {
+    Route::get('/cycles', [CycleController::class, 'index']);
+
+    Route::post('/cycle', [CycleController::class, 'store'])->middleware('storyteller');
+    Route::get('/submissions', [SubmissionController::class, 'queue'])->middleware('storyteller');
+    Route::get('/characters', [CharacterController::class, 'roster'])->middleware('storyteller');
+});
+
+Route::middleware(['cognito', 'storyteller'])->group(function () {
+    Route::put('/cycle/{cycle}', [CycleController::class, 'update'])->whereNumber('cycle');
+    Route::delete('/cycle/{cycle}', [CycleController::class, 'destroy'])->whereNumber('cycle');
+
+    Route::put('/submission/{submission}/approve', [SubmissionController::class, 'approve'])
+        ->whereNumber('submission');
+    Route::put('/submission/{submission}/reject', [SubmissionController::class, 'reject'])
+        ->whereNumber('submission');
 });

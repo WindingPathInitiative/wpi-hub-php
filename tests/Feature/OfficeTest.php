@@ -53,7 +53,7 @@ class OfficeTest extends FeatureTestCase
 
     public function test_roles_is_public(): void
     {
-        $this->getJson('/v1/office/roles')->assertOk()->assertJsonCount(24);
+        $this->getJson('/v1/office/roles')->assertOk()->assertJsonCount(25);
     }
 
     // --- POST /office -----------------------------------------------------
