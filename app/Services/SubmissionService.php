@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\DowntimeSubmitted;
 use App\Exceptions\UserException;
 use App\Models\Character;
 use App\Models\CharacterSubmission;
@@ -32,10 +33,36 @@ class SubmissionService
      */
     public const KINDS = [
         'advancement' => ['advancement.card', 'advancement.skill', 'advancement.germ', 'vxp.purchase'],
-        'downtime' => ['downtime.develop-anchor'],
+        'downtime' => [
+            'downtime.investigation',
+            'downtime.investigate',
+            'downtime.develop-anchor',
+            'downtime.protect-anchor',
+            'downtime.undermine-anchor',
+            'downtime.destroy-anchor',
+            'downtime.narrative-impact',
+            'downtime.culture-germ',
+        ],
         'adjustment' => ['adjust.germ-assignment', 'adjust.face-cards'],
         'rewrite' => ['rewrite'],
         'storyteller' => ['storyteller.add-anchor', 'storyteller.remove-anchor'],
+    ];
+
+    /**
+     * "Between games, you gain a single Investigation and a single Downtime
+     * Action" — these are the Actions. Mirrors DOWNTIME_ACTION_KINDS in
+     * character-state.models.ts.
+     *
+     * @var string[]
+     */
+    public const DOWNTIME_ACTIONS = [
+        'downtime.investigate',
+        'downtime.develop-anchor',
+        'downtime.protect-anchor',
+        'downtime.undermine-anchor',
+        'downtime.destroy-anchor',
+        'downtime.narrative-impact',
+        'downtime.culture-germ',
     ];
 
     public function __construct(private readonly CharacterBudgetService $budget) {}
@@ -140,8 +167,9 @@ class SubmissionService
     }
 
     /**
-     * Downtime is bound to the game's current cycle and its deadline, and a
-     * character gets one downtime submission per cycle.
+     * Downtime is bound to the game's current cycle and its deadline, a
+     * character gets one downtime submission per cycle, and that submission
+     * carries one Investigation and one Downtime Action.
      */
     private function validateDowntime(Character $character, CharacterSubmission $submission): void
     {
@@ -168,6 +196,85 @@ class SubmissionService
         if ($existing) {
             throw new UserException('Downtime has already been submitted for this cycle', 400);
         }
+
+        $this->validateDowntimeShape($submission);
+        $this->validateCultureGerm($character, $submission);
+    }
+
+    /**
+     * One Investigation and one Downtime Action, no more and no less. The
+     * per-cycle cap above only stops a second *submission*; this is what stops
+     * one submission taking two Actions.
+     */
+    private function validateDowntimeShape(CharacterSubmission $submission): void
+    {
+        $kinds = array_map(
+            fn ($change) => is_array($change) ? (string) ($change['kind'] ?? '') : '',
+            $submission->changes_json ?? []
+        );
+
+        $investigations = count(array_filter($kinds, fn ($k) => $k === 'downtime.investigation'));
+        $actions = count(array_filter($kinds, fn ($k) => in_array($k, self::DOWNTIME_ACTIONS, true)));
+
+        if ($investigations !== 1) {
+            throw new UserException('A downtime carries exactly one Investigation', 400);
+        }
+        if ($actions !== 1) {
+            throw new UserException('A downtime carries exactly one Downtime Action', 400);
+        }
+    }
+
+    /**
+     * Culturing must name a germ the character has that is tethered to an
+     * Anchor still standing — an untethered germ is no relationship to invest
+     * in. Skipped when no resolved sheet has been cached yet.
+     */
+    private function validateCultureGerm(Character $character, CharacterSubmission $submission): void
+    {
+        $changes = $this->changesWithKind($submission, 'downtime.culture-germ');
+        if ($changes === []) {
+            return;
+        }
+
+        $sheet = $character->resolved();
+        if ($sheet === null) {
+            return;
+        }
+
+        $activeAnchorIds = array_column($this->activeAnchors($sheet), 'anchorId');
+
+        foreach ($changes as $change) {
+            $germId = $change['payload']['germId'] ?? null;
+            $germ = null;
+
+            foreach ($sheet['germs'] ?? [] as $candidate) {
+                if (is_array($candidate) && ($candidate['id'] ?? null) === $germId) {
+                    $germ = $candidate;
+                    break;
+                }
+            }
+
+            if ($germId === null || $germ === null) {
+                throw new UserException('Germ is not on this character', 400);
+            }
+            if (! in_array($germ['anchorId'] ?? null, $activeAnchorIds, true)) {
+                throw new UserException('Germ is not tethered to an active Anchor', 400);
+            }
+        }
+    }
+
+    /**
+     * Changes of exactly this kind. `changesOfKind` matches on prefix, which
+     * would read a `downtime.investigation` as a `downtime.investigate`.
+     *
+     * @return array<int, array>
+     */
+    private function changesWithKind(CharacterSubmission $submission, string $kind): array
+    {
+        return array_values(array_filter(
+            $submission->changes_json ?? [],
+            fn ($c) => is_array($c) && ($c['kind'] ?? null) === $kind
+        ));
     }
 
     /**
@@ -280,6 +387,14 @@ class SubmissionService
             $submission->note,
         );
         $submission->save();
+
+        // Both routes into `submitted` come through here — a first filing and a
+        // resubmit after a rejection — so this is where the record goes out to
+        // the player and their storyteller.
+        if ($submission->type === 'downtime') {
+            $submission->setRelation('character', $character);
+            DowntimeSubmitted::dispatch($submission);
+        }
 
         return $submission;
     }

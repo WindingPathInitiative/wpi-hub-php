@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\CharacterSubmission;
+use App\Services\SubmissionService;
 use Database\Seeders\CharacterFixturesSeeder as F;
 use Tests\CharacterTestCase;
 
@@ -205,7 +206,7 @@ class SubmissionTest extends CharacterTestCase
         $current = $this->makeCycle(['name' => 'Game 2 -> 3', 'opens_at' => now()->subDays(2)]);
         $character = $this->makeCharacter();
 
-        $stale = $this->draft($character->id, 'downtime', $this->changes(['downtime.develop-anchor']), [
+        $stale = $this->draft($character->id, 'downtime', $this->downtime(), [
             'cycle_id' => $old->id,
         ]);
         $this->asUser(F::PLAYER)
@@ -213,7 +214,7 @@ class SubmissionTest extends CharacterTestCase
             ->assertStatus(400);
 
         // Omitting the cycle defaults to the current one.
-        $id = $this->draft($character->id, 'downtime', $this->changes(['downtime.develop-anchor']));
+        $id = $this->draft($character->id, 'downtime', $this->downtime());
         $this->assertSame($current->id, CharacterSubmission::find($id)->cycle_id);
         $this->asUser(F::PLAYER)
             ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
@@ -225,7 +226,7 @@ class SubmissionTest extends CharacterTestCase
         $this->makeCycle(['downtime_due_at' => now()->addHour()]);
         $character = $this->makeCharacter();
 
-        $id = $this->draft($character->id, 'downtime', $this->changes(['downtime.develop-anchor']));
+        $id = $this->draft($character->id, 'downtime', $this->downtime());
 
         $this->travelTo(now()->addDays(2));
         $this->asUser(F::PLAYER)
@@ -238,10 +239,10 @@ class SubmissionTest extends CharacterTestCase
         $this->makeCycle();
         $character = $this->makeCharacter();
 
-        $first = $this->draft($character->id, 'downtime', $this->changes(['downtime.develop-anchor']));
+        $first = $this->draft($character->id, 'downtime', $this->downtime());
         $this->asUser(F::PLAYER)->postJson("/v1/character/{$character->id}/submission/{$first}/submit")->assertOk();
 
-        $second = $this->draft($character->id, 'downtime', $this->changes(['downtime.develop-anchor']));
+        $second = $this->draft($character->id, 'downtime', $this->downtime());
         $this->asUser(F::PLAYER)
             ->postJson("/v1/character/{$character->id}/submission/{$second}/submit")
             ->assertStatus(400);
@@ -254,7 +255,7 @@ class SubmissionTest extends CharacterTestCase
         $sheet['anchors'][] = ['anchorId' => 'a3', 'type' => 'group', 'name' => 'Third', 'active' => true];
         $character = $this->makeCharacter(['current_json' => $sheet]);
 
-        $id = $this->draft($character->id, 'downtime', $this->changes(['downtime.develop-anchor']));
+        $id = $this->draft($character->id, 'downtime', $this->downtime());
         $this->asUser(F::PLAYER)
             ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
             ->assertStatus(400);
@@ -267,10 +268,90 @@ class SubmissionTest extends CharacterTestCase
         $sheet['anchors'][] = ['anchorId' => 'a3', 'type' => 'group', 'name' => 'Destroyed', 'active' => false];
         $character = $this->makeCharacter(['current_json' => $sheet]);
 
-        $id = $this->draft($character->id, 'downtime', $this->changes(['downtime.develop-anchor']));
+        $id = $this->draft($character->id, 'downtime', $this->downtime());
         $this->asUser(F::PLAYER)
             ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
             ->assertOk();
+    }
+
+    public function test_every_downtime_action_is_accepted(): void
+    {
+        $this->makeCycle();
+
+        foreach (SubmissionService::DOWNTIME_ACTIONS as $action) {
+            $character = $this->makeCharacter(['name' => "Filed {$action}"]);
+            $id = $this->draft($character->id, 'downtime', $this->downtime($action));
+
+            $this->asUser(F::PLAYER)
+                ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
+                ->assertOk();
+        }
+    }
+
+    public function test_a_downtime_is_one_investigation_and_one_action(): void
+    {
+        $this->makeCycle();
+        $character = $this->makeCharacter();
+
+        $shapes = [
+            // Two Actions.
+            $this->changes(['downtime.investigation', 'downtime.protect-anchor', 'downtime.narrative-impact']),
+            // No Investigation.
+            $this->changes(['downtime.protect-anchor']),
+            // Two Investigations. (The kinds are prefixes of one another, so
+            // this also proves the shape check matches exactly.)
+            $this->changes(['downtime.investigation', 'downtime.investigation', 'downtime.investigate']),
+            // No Action.
+            $this->changes(['downtime.investigation']),
+        ];
+
+        foreach ($shapes as $changes) {
+            $id = $this->draft($character->id, 'downtime', $changes);
+            $this->asUser(F::PLAYER)
+                ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
+                ->assertStatus(400);
+        }
+    }
+
+    public function test_culturing_needs_a_germ_this_character_has_on_a_standing_anchor(): void
+    {
+        $this->makeCycle();
+        $character = $this->makeCharacter();
+
+        $notMine = $this->draft($character->id, 'downtime', $this->changes(['downtime.investigation']));
+        $this->asUser(F::PLAYER)->putJson("/v1/character/{$character->id}/submission/{$notMine}", [
+            'changes_json' => array_merge($this->changes(['downtime.investigation']), [
+                ['kind' => 'downtime.culture-germ', 'payload' => ['germId' => 'eldritch-grace']],
+            ]),
+        ])->assertOk();
+        $this->asUser(F::PLAYER)
+            ->postJson("/v1/character/{$character->id}/submission/{$notMine}/submit")
+            ->assertStatus(400);
+
+        // The Anchor that Germ hung off was destroyed, so it is tethered to
+        // nothing and there is no relationship left to invest in.
+        $sheet = $this->sheet();
+        $sheet['anchors'][0]['active'] = false;
+        $sheet['germs'][0]['anchorId'] = null;
+        $stranded = $this->makeCharacter(['name' => 'Stranded', 'current_json' => $sheet]);
+
+        $id = $this->draft($stranded->id, 'downtime', $this->downtime('downtime.culture-germ'));
+        $this->asUser(F::PLAYER)
+            ->postJson("/v1/character/{$stranded->id}/submission/{$id}/submit")
+            ->assertStatus(400);
+    }
+
+    public function test_downtime_kinds_are_refused_in_other_submission_types(): void
+    {
+        $this->makeCycle();
+        $character = $this->makeCharacter();
+
+        foreach (['advancement', 'adjustment', 'rewrite'] as $type) {
+            $id = $this->draft($character->id, $type, $this->changes(['downtime.narrative-impact']));
+            $this->asUser(F::PLAYER)
+                ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
+                ->assertStatus(400);
+        }
     }
 
     // --- submitting: adjustments ------------------------------------------

@@ -89,6 +89,17 @@ abstract class CharacterTestCase extends TestCase
     }
 
     /**
+     * A well-formed downtime: the Investigation every character files, plus the
+     * one Downtime Action they chose.
+     *
+     * @return array<int, array>
+     */
+    protected function downtime(string $action = 'downtime.develop-anchor'): array
+    {
+        return $this->changes(['downtime.investigation', $action]);
+    }
+
+    /**
      * @param  string[]  $kinds
      * @return array<int, array>
      */
@@ -99,9 +110,26 @@ abstract class CharacterTestCase extends TestCase
             'advancement.skill' => ['kind' => 'advancement.skill', 'payload' => ['skillId' => 'investigate']],
             'advancement.germ' => ['kind' => 'advancement.germ', 'payload' => ['germId' => 'mycelial-senses', 'anchorId' => 'a1']],
             'vxp.purchase' => ['kind' => 'vxp.purchase', 'payload' => ['cost' => 20]],
+            'downtime.investigation' => ['kind' => 'downtime.investigation', 'payload' => [
+                'topic' => 'Who torched the warehouse on Delaware Ave?', 'anchorId' => null,
+            ]],
+            'downtime.investigate' => ['kind' => 'downtime.investigate', 'payload' => [
+                'topic' => 'Where did the missing shift nurse go?', 'anchorId' => 'a1',
+            ]],
             'downtime.develop-anchor' => ['kind' => 'downtime.develop-anchor', 'payload' => [
                 'anchor' => ['type' => 'group', 'name' => 'New Friends', 'tag' => 'underdog'],
             ]],
+            'downtime.protect-anchor' => ['kind' => 'downtime.protect-anchor', 'payload' => ['anchorId' => 'a1']],
+            'downtime.undermine-anchor' => ['kind' => 'downtime.undermine-anchor', 'payload' => [
+                'target' => 'Ray Vasquez — his union local', 'describe' => 'Rumours in the right ears',
+            ]],
+            'downtime.destroy-anchor' => ['kind' => 'downtime.destroy-anchor', 'payload' => [
+                'target' => 'Ray Vasquez — his union local', 'describe' => 'They scatter for good',
+            ]],
+            'downtime.narrative-impact' => ['kind' => 'downtime.narrative-impact', 'payload' => [
+                'describe' => 'Opens a free clinic in Kensington',
+            ]],
+            'downtime.culture-germ' => ['kind' => 'downtime.culture-germ', 'payload' => ['germId' => 'shroom-shield']],
             'adjust.germ-assignment' => ['kind' => 'adjust.germ-assignment', 'payload' => ['germId' => 'shroom-shield', 'anchorId' => 'a2']],
             'adjust.face-cards' => ['kind' => 'adjust.face-cards', 'payload' => ['faceCardSuits' => ['A' => 'spades']]],
             default => ['kind' => $kind, 'payload' => []],
