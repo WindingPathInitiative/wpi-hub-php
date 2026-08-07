@@ -410,7 +410,17 @@ class SubmissionService
      * Approves a submission: re-validates it, folds its changes into the
      * character envelope, and refreshes the cached sheet.
      *
-     * @param  ?array  $current  the resolved sheet the ST client replayed
+     * The cache is only ever as good as what the caller sends. The server has no
+     * replay engine, so it cannot tell a correct sheet from a wrong one — which
+     * is why there is no fallback to `$submission->current_json` here. That copy
+     * was replayed by the *player's* client at submit time and is missing
+     * anything approved for this character since, so installing it as the
+     * character's sheet would silently drop those changes. A caller that sends
+     * nothing leaves the previous cache in place: stale, but detectably so, and
+     * the player's detail screen offers to repair it.
+     *
+     * @param  ?array  $current  the resolved sheet the ST client replayed, replaying
+     *                           the character's approved history plus this submission
      */
     public function approve(CharacterSubmission $submission, User $storyteller, ?array $current = null): CharacterSubmission
     {
@@ -420,7 +430,6 @@ class SubmissionService
 
         DB::transaction(function () use ($submission, $character, $storyteller, $current) {
             $resolvedAt = now();
-            $current ??= $submission->current_json;
 
             $submission->changes_json = CharacterEnvelope::stamp(
                 $submission->changes_json ?? [],

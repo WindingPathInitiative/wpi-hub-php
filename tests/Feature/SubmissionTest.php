@@ -484,10 +484,18 @@ class SubmissionTest extends CharacterTestCase
         $this->assertSame(F::ST, CharacterSubmission::find($id)->resolved_by);
     }
 
-    public function test_approval_falls_back_to_the_sheet_sent_with_the_submission(): void
+    /**
+     * The sheet a player sent with their submission is not a safe cache: they
+     * replayed it before anything else in the queue was approved. Approving
+     * without a fresh one leaves the previous cache alone rather than installing
+     * that snapshot — a stale cache the client can detect and repair beats a
+     * wrong one it would trust.
+     */
+    public function test_approval_ignores_the_sheet_sent_with_the_submission(): void
     {
         $this->makeCycle(['improvements_granted' => 2]);
         $character = $this->makeCharacter();
+        $before = $character->current_json;
 
         $sheet = $this->sheet();
         $sheet['trainedSkills'][] = 'investigate';
@@ -498,7 +506,15 @@ class SubmissionTest extends CharacterTestCase
         $this->asUser(F::PLAYER)->postJson("/v1/character/{$character->id}/submission/{$id}/submit")->assertOk();
         $this->asUser(F::ST)->putJson("/v1/submission/{$id}/approve")->assertOk();
 
-        $this->assertContains('investigate', $character->fresh()->current_json['trainedSkills']);
+        // Compared field by field: the JSON column reorders keys on the way out.
+        $character->refresh();
+        $this->assertNotContains('investigate', $character->current_json['trainedSkills']);
+        $this->assertSame($before['trainedSkills'], $character->current_json['trainedSkills']);
+        $this->assertSame($before['attributes'], $character->current_json['attributes']);
+
+        // The change itself still lands: the history is authoritative either way.
+        $this->assertCount(1, $character->character_json['changes']);
+        $this->assertSame('approved', $character->character_json['changes'][0]['status']);
     }
 
     public function test_approval_needs_the_right_storyteller_and_a_submitted_submission(): void
