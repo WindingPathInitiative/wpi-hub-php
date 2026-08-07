@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\Events\CharacterUpdateSubmitted;
 use App\Events\DowntimeSubmitted;
+use App\Events\SubmissionReviewed;
 use App\Exceptions\UserException;
 use App\Models\Character;
 use App\Models\CharacterSubmission;
@@ -390,10 +392,15 @@ class SubmissionService
 
         // Both routes into `submitted` come through here — a first filing and a
         // resubmit after a rejection — so this is where the record goes out to
-        // the player and their storyteller.
+        // the player and their storyteller. A downtime is a record for the
+        // player; everything else is a decision for the storyteller, which is
+        // why they are two mails and not one.
+        $submission->setRelation('character', $character);
+
         if ($submission->type === 'downtime') {
-            $submission->setRelation('character', $character);
             DowntimeSubmitted::dispatch($submission);
+        } else {
+            CharacterUpdateSubmitted::dispatch($submission);
         }
 
         return $submission;
@@ -411,7 +418,7 @@ class SubmissionService
         $this->assertResolvable($submission);
         $this->validate($character, $submission);
 
-        return DB::transaction(function () use ($submission, $character, $storyteller, $current) {
+        DB::transaction(function () use ($submission, $character, $storyteller, $current) {
             $resolvedAt = now();
             $current ??= $submission->current_json;
 
@@ -436,9 +443,11 @@ class SubmissionService
                 $character->current_json = $current;
             }
             $character->save();
-
-            return $submission;
         });
+
+        $this->announceReview($submission);
+
+        return $submission;
     }
 
     /**
@@ -463,7 +472,22 @@ class SubmissionService
         $submission->resolved_by = $storyteller->id;
         $submission->save();
 
+        $this->announceReview($submission);
+
         return $submission;
+    }
+
+    /**
+     * Tells the player their submission was decided, either way.
+     *
+     * A storyteller's own direct edit approves itself the moment it is created,
+     * so there is no verdict to report on one — the player was not waiting.
+     */
+    private function announceReview(CharacterSubmission $submission): void
+    {
+        if ($submission->type !== 'storyteller') {
+            SubmissionReviewed::dispatch($submission);
+        }
     }
 
     /**

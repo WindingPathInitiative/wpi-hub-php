@@ -5,18 +5,18 @@ namespace App\Support;
 use Illuminate\Support\Str;
 
 /**
- * Renders a downtime submission's changes into something readable in an email.
+ * Renders a submission's changes into something readable in an email.
  *
  * Deliberately dumb: a label for the kind plus the payload's own text. The
- * rules catalogue (Germ names, Anchor categories) lives in the TypeScript
- * client, and the hub has no copy of it — so ids resolve against the
- * submission's own `current_json`, which does carry Anchor names, and a Germ
- * falls back to its id read as words.
+ * rules catalogue (Germ names, Skill names, Anchor categories) lives in the
+ * TypeScript client, and the hub has no copy of it — so ids resolve against the
+ * submission's own `current_json`, which does carry Anchor names, and anything
+ * else falls back to its id read as words.
  *
  * The client's describe.ts does the same job for the screen. Keep them
  * recognisably in step, but they are not required to agree word for word.
  */
-class DowntimeSummary
+class ChangeSummary
 {
     /**
      * One entry per change: a heading and the lines under it.
@@ -52,6 +52,24 @@ class DowntimeSummary
         $payload = is_array($change['payload'] ?? null) ? $change['payload'] : [];
 
         return match ($kind) {
+            'advancement.card' => [
+                'heading' => 'Improvement — Card',
+                'lines' => self::lines(self::cardMoves($payload)),
+            ],
+            'advancement.skill' => [
+                'heading' => 'Improvement — Skill',
+                'lines' => self::lines([self::skill($payload)]),
+            ],
+            'advancement.germ' => [
+                'heading' => 'Improvement — Germ',
+                'lines' => self::lines([
+                    self::learnedGerm($payload['germId'] ?? null, $payload['anchorId'] ?? null, $sheet),
+                ]),
+            ],
+            'vxp.purchase' => [
+                'heading' => 'VXP Purchase',
+                'lines' => self::lines([self::vxp($payload)]),
+            ],
             'downtime.investigation' => [
                 'heading' => 'Investigation',
                 'lines' => self::lines([
@@ -103,8 +121,182 @@ class DowntimeSummary
                 'heading' => 'Downtime Action — Culture a Germ',
                 'lines' => self::lines([self::germ($payload['germId'] ?? null, $sheet)]),
             ],
+            'adjust.germ-assignment' => [
+                'heading' => 'Adjustment — Germ Assignment',
+                'lines' => self::lines([
+                    self::movedGerm($payload['germId'] ?? null, $payload['anchorId'] ?? null, $sheet),
+                ]),
+            ],
+            'adjust.face-cards' => [
+                'heading' => 'Adjustment — Face Cards',
+                'lines' => self::lines([self::faceCards($payload['faceCardSuits'] ?? null)]),
+            ],
+            'rewrite' => [
+                'heading' => 'Rewrite',
+                'lines' => self::rewrite($payload, $sheet),
+            ],
+            'storyteller.add-anchor' => [
+                'heading' => 'Storyteller — Anchor granted',
+                'lines' => self::lines([
+                    self::anchorFromPayload(is_array($payload['anchor'] ?? null) ? $payload['anchor'] : []),
+                    self::text(is_array($payload['anchor'] ?? null) ? $payload['anchor'] : [], 'description'),
+                ]),
+            ],
+            'storyteller.remove-anchor' => [
+                'heading' => 'Storyteller — Anchor destroyed',
+                'lines' => self::lines([
+                    self::anchorName($payload['anchorId'] ?? null, $sheet),
+                    self::labelled('Reason', self::text($payload, 'reason')),
+                ]),
+            ],
             default => null,
         };
+    }
+
+    /**
+     * A rewrite re-authors the character's whole advancement history, so the
+     * entry is a count and then the advancements themselves, one to a line.
+     *
+     * @return string[]
+     */
+    private static function rewrite(array $payload, ?array $sheet): array
+    {
+        $advancements = is_array($payload['advancements'] ?? null) ? $payload['advancements'] : [];
+        $count = count($advancements);
+
+        $lines = ["Re-authored {$count} advancement".($count === 1 ? '' : 's').'.'];
+
+        foreach ($advancements as $advancement) {
+            if (is_array($advancement)) {
+                $lines[] = self::oneLine($advancement, $sheet);
+            }
+        }
+
+        return self::lines($lines);
+    }
+
+    /**
+     * A nested change flattened onto a single line, for the entries that carry
+     * other changes inside them.
+     */
+    private static function oneLine(array $change, ?array $sheet): string
+    {
+        $entry = self::entry($change, $sheet);
+
+        if ($entry === null) {
+            return '';
+        }
+
+        return $entry['lines'] === []
+            ? $entry['heading']
+            : $entry['heading'].': '.implode(' — ', $entry['lines']);
+    }
+
+    /**
+     * An improvement spent on a card may raise one and lower another.
+     *
+     * @return string[]
+     */
+    private static function cardMoves(array $payload): array
+    {
+        $up = self::cardName($payload['increaseCardId'] ?? null);
+        $down = self::cardName($payload['decreaseCardId'] ?? null);
+
+        return [
+            $up === '' ? '' : "+1 {$up}",
+            $down === '' ? '' : "−1 {$down}",
+        ];
+    }
+
+    /**
+     * Crafts is the one skill trained more than once, each time for a different
+     * type, so the type rides along where the payload names it.
+     */
+    private static function skill(array $payload): string
+    {
+        $skillId = $payload['skillId'] ?? null;
+        if (! is_string($skillId) || $skillId === '') {
+            return '';
+        }
+
+        $craftType = self::text($payload, 'craftType');
+        $name = Str::headline($skillId);
+
+        return 'Trained '.($craftType === '' ? $name : "{$name} ({$craftType})");
+    }
+
+    private static function learnedGerm(mixed $germId, mixed $anchorId, ?array $sheet): string
+    {
+        if (! is_string($germId) || $germId === '') {
+            return '';
+        }
+
+        $anchor = self::anchorName($anchorId, $sheet);
+        $name = Str::headline($germId);
+
+        return $anchor === '' ? "Learned {$name}" : "Learned {$name} on {$anchor}";
+    }
+
+    private static function movedGerm(mixed $germId, mixed $anchorId, ?array $sheet): string
+    {
+        if (! is_string($germId) || $germId === '') {
+            return '';
+        }
+
+        $anchor = self::anchorName($anchorId, $sheet);
+
+        return 'Moved '.Str::headline($germId).' to '.($anchor === '' ? 'no Anchor' : $anchor);
+    }
+
+    /**
+     * The storyteller verifies the actual spend out of band; all the hub knows
+     * is that the player claimed it.
+     */
+    private static function vxp(array $payload): string
+    {
+        $cost = $payload['cost'] ?? null;
+
+        return is_numeric($cost)
+            ? "Bought an improvement with {$cost} VXP."
+            : 'Bought an improvement with VXP.';
+    }
+
+    /**
+     * Suit glyphs live in the client's catalogue, so the suits are spelled out.
+     */
+    private static function faceCards(mixed $suits): string
+    {
+        if (! is_array($suits)) {
+            return '';
+        }
+
+        $parts = [];
+
+        foreach (['A', 'J', 'Q', 'K'] as $rank) {
+            $suit = $suits[$rank] ?? null;
+            $parts[] = $rank.' '.(is_string($suit) && $suit !== '' ? Str::headline($suit) : '—');
+        }
+
+        return implode(' · ', $parts);
+    }
+
+    /**
+     * Card ids are `attr-<attributeId>` or `germ-<germId>`; the catalogue that
+     * holds the display names is the client's, so the id reads as words.
+     */
+    private static function cardName(mixed $cardId): string
+    {
+        if (! is_string($cardId) || $cardId === '') {
+            return '';
+        }
+
+        foreach (['attr-', 'germ-'] as $prefix) {
+            if (str_starts_with($cardId, $prefix)) {
+                return Str::headline(substr($cardId, strlen($prefix)));
+            }
+        }
+
+        return Str::headline($cardId);
     }
 
     /**

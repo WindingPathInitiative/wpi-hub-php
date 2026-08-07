@@ -3,7 +3,7 @@
 namespace App\Mail;
 
 use App\Models\CharacterSubmission;
-use App\Support\DowntimeSummary;
+use App\Support\ChangeSummary;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Address;
@@ -57,7 +57,7 @@ class DowntimeSubmitted extends Mailable
                 'cycle' => $submission->cycle?->name,
                 'dueAt' => $submission->cycle?->downtime_due_at,
                 'note' => $submission->note,
-                'entries' => DowntimeSummary::entries(
+                'entries' => ChangeSummary::entries(
                     $submission->changes_json ?? [],
                     $submission->current_json ?? $character?->resolved(),
                 ),

@@ -133,7 +133,11 @@ class DowntimeMailTest extends CharacterTestCase
         Mail::assertSent(DowntimeSubmitted::class, 2);
     }
 
-    public function test_other_submission_types_send_nothing(): void
+    /**
+     * Other types are mailed too, but as a CharacterUpdateSubmitted — this one
+     * is only about who is *not* told they filed a downtime.
+     */
+    public function test_other_submission_types_do_not_send_a_downtime(): void
     {
         $character = $this->makeCharacter();
 
@@ -145,10 +149,10 @@ class DowntimeMailTest extends CharacterTestCase
             ->json('id');
         $this->asUser(F::PLAYER)->postJson("/v1/character/{$character->id}/submission/{$id}/submit")->assertOk();
 
-        Mail::assertNothingSent();
+        Mail::assertNotSent(DowntimeSubmitted::class);
     }
 
-    public function test_a_rejected_downtime_is_not_mailed_again_on_rejection(): void
+    public function test_the_filing_mail_is_not_sent_again_when_it_is_rejected(): void
     {
         $character = $this->makeCharacter();
         $this->fileDowntime($character->id)->assertOk();

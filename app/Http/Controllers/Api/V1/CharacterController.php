@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Events\CharacterSubmitted;
 use App\Exceptions\UserException;
 use App\Http\Controllers\Concerns\ResolvesCharacters;
 use App\Http\Controllers\Concerns\ValidatesLegacy;
@@ -103,6 +104,11 @@ class CharacterController extends Controller
             'current_json' => $attributes['current_json'] ?? $envelope['current'] ?? null,
         ]);
         $character->save();
+
+        // Saving it is the whole of "submitting" a character — there is no
+        // approval step — so this is the moment the game's storyteller gets to
+        // hear about it.
+        CharacterSubmitted::dispatch($character);
 
         return response()->json(
             (new CharacterResource($character))->full()->toArray($request),

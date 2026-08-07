@@ -40,6 +40,15 @@ class CharacterSubmission extends Model
 
     public const STATUSES = ['draft', 'submitted', 'approved', 'rejected'];
 
+    /** What each type is called when a person is being written to about it. */
+    private const TYPE_LABELS = [
+        'advancement' => 'Advancement',
+        'downtime' => 'Downtime',
+        'adjustment' => 'Adjustment',
+        'rewrite' => 'Rewrite',
+        'storyteller' => 'Storyteller edit',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -93,6 +102,14 @@ class CharacterSubmission extends Model
             $this->changes_json ?? [],
             fn ($c) => is_array($c) && str_starts_with((string) ($c['kind'] ?? ''), $prefix)
         ));
+    }
+
+    /**
+     * The submission's type as a subject line says it.
+     */
+    public function typeLabel(): string
+    {
+        return self::TYPE_LABELS[$this->type] ?? 'Character update';
     }
 
     public function isEditable(): bool
