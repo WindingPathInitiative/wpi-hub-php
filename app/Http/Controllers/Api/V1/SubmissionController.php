@@ -155,7 +155,7 @@ class SubmissionController extends Controller
             ->when($status !== 'all', fn ($q) => $q->where('status', $status))
             // Drafts are the player's private workspace.
             ->when($status === 'all', fn ($q) => $q->where('status', '!=', 'draft'))
-            ->with(['character', 'cycle'])
+            ->with(['character.user', 'cycle'])
             ->orderBy('id')
             ->get();
 

@@ -56,7 +56,7 @@ class CharacterController extends Controller
     public function show(Request $request, int $id)
     {
         $character = $this->ownedOrStoryteldCharacter($request, $id);
-        $character->load(['submissions', 'unit']);
+        $character->load(['submissions', 'unit', 'user']);
 
         return (new CharacterResource($character))
             ->full()

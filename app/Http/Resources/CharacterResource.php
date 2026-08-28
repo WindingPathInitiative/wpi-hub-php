@@ -13,7 +13,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *   ->budget() -> attaches the improvement budget summary
  *
  * Submissions are embedded only when the relation is loaded (show does; index
- * does not).
+ * does not). `player_name` likewise appears only when `user` is loaded — the
+ * storyteller screens need whose character this is.
  */
 class CharacterResource extends JsonResource
 {
@@ -56,6 +57,10 @@ class CharacterResource extends JsonResource
 
         if ($this->budget !== null) {
             $data['budget'] = $this->budget;
+        }
+
+        if ($this->resource->relationLoaded('user')) {
+            $data['player_name'] = $c->user?->nickname;
         }
 
         if ($this->resource->relationLoaded('unit')) {
