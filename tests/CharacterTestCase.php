@@ -130,6 +130,12 @@ abstract class CharacterTestCase extends TestCase
                 'describe' => 'Opens a free clinic in Kensington',
             ]],
             'downtime.culture-germ' => ['kind' => 'downtime.culture-germ', 'payload' => ['germId' => 'shroom-shield']],
+            'downtime.join-bloom' => ['kind' => 'downtime.join-bloom', 'payload' => [
+                'bloomId' => 'corpse-flowers',
+                'anchorId' => 'a1',
+                'sponsor' => ['kind' => 'member', 'name' => 'Ash', 'accomplishment' => 'Buried the Kensington dead'],
+                'describe' => 'The Crew start pushing for natural burial',
+            ]],
             'adjust.germ-assignment' => ['kind' => 'adjust.germ-assignment', 'payload' => ['germId' => 'shroom-shield', 'anchorId' => 'a2']],
             'adjust.face-cards' => ['kind' => 'adjust.face-cards', 'payload' => ['faceCardSuits' => ['A' => 'spades']]],
             default => ['kind' => $kind, 'payload' => []],
