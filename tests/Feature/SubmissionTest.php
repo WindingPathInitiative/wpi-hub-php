@@ -234,6 +234,23 @@ class SubmissionTest extends CharacterTestCase
             ->assertStatus(400);
     }
 
+    public function test_a_storyteller_approves_downtime_after_its_cycle_closes(): void
+    {
+        $old = $this->makeCycle(['opens_at' => now()->subDays(2), 'downtime_due_at' => now()->addHour()]);
+        $character = $this->makeCharacter();
+
+        $id = $this->draft($character->id, 'downtime', $this->downtime());
+        $this->asUser(F::PLAYER)->postJson("/v1/character/{$character->id}/submission/{$id}/submit")->assertOk();
+
+        // The deadline passes and the next cycle opens before the ST gets to it.
+        $this->travelTo(now()->addDays(2));
+        $this->makeCycle(['opens_at' => now()->subHour()]);
+
+        $this->asUser(F::ST)->putJson("/v1/submission/{$id}/approve")->assertOk();
+        $this->assertSame('approved', CharacterSubmission::find($id)->status);
+        $this->assertSame($old->id, CharacterSubmission::find($id)->cycle_id);
+    }
+
     public function test_one_downtime_per_character_per_cycle(): void
     {
         $this->makeCycle();
@@ -341,16 +358,164 @@ class SubmissionTest extends CharacterTestCase
             ->assertStatus(400);
     }
 
+    // --- submitting: Join a Bloom ------------------------------------------
+
+    /**
+     * A downtime joining a Bloom, with `$payload` merged over the default join.
+     *
+     * @return array<int, array>
+     */
+    private function bloomDowntime(array $payload = []): array
+    {
+        $changes = $this->downtime('downtime.join-bloom');
+        $changes[1]['payload'] = array_merge($changes[1]['payload'], $payload);
+
+        return $changes;
+    }
+
+    private function submitStatus(int $characterId, int $submissionId): int
+    {
+        return $this->asUser(F::PLAYER)
+            ->postJson("/v1/character/{$characterId}/submission/{$submissionId}/submit")
+            ->status();
+    }
+
+    public function test_joining_a_bloom_is_a_downtime_action(): void
+    {
+        $this->makeCycle();
+        $character = $this->makeCharacter();
+
+        $id = $this->draft($character->id, 'downtime', $this->bloomDowntime());
+        $this->assertSame(200, $this->submitStatus($character->id, $id));
+
+        $twoActions = $this->makeCharacter(['name' => 'Greedy']);
+        $id = $this->draft($twoActions->id, 'downtime', array_merge(
+            $this->bloomDowntime(),
+            $this->changes(['downtime.develop-anchor'])
+        ));
+        $this->assertSame(400, $this->submitStatus($twoActions->id, $id));
+    }
+
+    public function test_a_bloom_join_is_refused_when_it_does_not_fit_the_sheet(): void
+    {
+        $this->makeCycle();
+
+        $alreadyIn = $this->sheet();
+        $alreadyIn['bloomId'] = 'class-composters';
+        $alreadyIn['bloomAnchorId'] = 'a1';
+
+        $destroyed = $this->sheet();
+        $destroyed['anchors'][0]['active'] = false;
+
+        $cases = [
+            'unknown Bloom' => [$this->sheet(), ['bloomId' => 'the-illuminati']],
+            'wrong Clade' => [$this->sheet(), ['bloomId' => 'root-wardens']],
+            'already in a Bloom' => [$alreadyIn, []],
+            'individual Anchor' => [$this->sheet(), ['anchorId' => 'a2']],
+            'destroyed Anchor' => [$destroyed, []],
+        ];
+
+        foreach ($cases as $name => [$sheet, $payload]) {
+            $character = $this->makeCharacter(['name' => $name, 'current_json' => $sheet]);
+            $id = $this->draft($character->id, 'downtime', $this->bloomDowntime($payload));
+
+            $this->assertSame(400, $this->submitStatus($character->id, $id), $name);
+        }
+    }
+
+    public function test_only_one_bloom_join_may_be_pending(): void
+    {
+        $first = $this->makeCycle(['opens_at' => now()->subDays(30)]);
+        $character = $this->makeCharacter();
+
+        $id = $this->draft($character->id, 'downtime', $this->bloomDowntime());
+        $this->assertSame(200, $this->submitStatus($character->id, $id));
+
+        // Next cycle opens with the first join still unresolved.
+        $first->update(['downtime_due_at' => now()->subDay()]);
+        $this->makeCycle(['name' => 'Game 2 -> 3', 'opens_at' => now()->subDay()]);
+
+        $again = $this->draft($character->id, 'downtime', $this->bloomDowntime());
+        $this->assertSame(400, $this->submitStatus($character->id, $again));
+    }
+
+    public function test_joining_a_bloom_costs_an_improvement_and_may_overdraw_by_one(): void
+    {
+        $this->makeCycle(['improvements_granted' => 1]);
+        $budget = fn ($c) => $this->getJsonAs(F::PLAYER, "/v1/character/{$c->id}")->json('budget');
+
+        // One left: the join leaves none.
+        $solvent = $this->makeCharacter(['name' => 'Solvent']);
+        $id = $this->draft($solvent->id, 'downtime', $this->bloomDowntime());
+        $this->assertSame(200, $this->submitStatus($solvent->id, $id));
+        $this->assertSame(0, $budget($solvent)['remaining']);
+        $this->assertSame(0, $budget($solvent)['germ_spent']);
+
+        // None left: the join takes the next one, leaving -1.
+        $broke = $this->makeCharacter(['name' => 'Broke']);
+        $spend = $this->draft($broke->id, 'advancement', $this->changes(['advancement.card']));
+        $this->assertSame(200, $this->submitStatus($broke->id, $spend));
+        $id = $this->draft($broke->id, 'downtime', $this->bloomDowntime());
+        $this->assertSame(200, $this->submitStatus($broke->id, $id));
+        $this->assertSame(-1, $budget($broke)['remaining']);
+
+        // Owing one, an adjustment still goes through — it spends nothing.
+        $adjust = $this->draft($broke->id, 'adjustment', $this->changes(['adjust.face-cards']));
+        $this->assertSame(200, $this->submitStatus($broke->id, $adjust));
+
+        // But another advancement does not.
+        $more = $this->draft($broke->id, 'advancement', $this->changes(['advancement.skill']));
+        $this->assertSame(400, $this->submitStatus($broke->id, $more));
+    }
+
+    public function test_a_bloom_join_is_refused_while_an_improvement_is_owed(): void
+    {
+        $this->makeCycle(['improvements_granted' => 0]);
+        $character = $this->makeCharacter();
+
+        // Already at -1 from an earlier join elsewhere in history: simulate with
+        // a spend the budget cannot cover, approved by a storyteller long ago.
+        CharacterSubmission::create([
+            'character_id' => $character->id,
+            'type' => 'advancement',
+            'status' => 'approved',
+            'changes_json' => $this->changes(['advancement.card']),
+        ]);
+
+        $id = $this->draft($character->id, 'downtime', $this->bloomDowntime());
+        $this->assertSame(400, $this->submitStatus($character->id, $id));
+    }
+
+    public function test_the_bloom_improvement_survives_a_rewrite(): void
+    {
+        $this->makeCycle(['improvements_granted' => 2]);
+        $character = $this->makeCharacter();
+
+        $join = $this->draft($character->id, 'downtime', $this->bloomDowntime());
+        $this->assertSame(200, $this->submitStatus($character->id, $join));
+
+        $rewrite = $this->draft($character->id, 'rewrite', [[
+            'kind' => 'rewrite',
+            'payload' => ['starting' => ['cladeId' => 'dumpster'], 'advancements' => $this->changes(['advancement.card'])],
+        ]]);
+        $this->assertSame(200, $this->submitStatus($character->id, $rewrite));
+
+        $budget = $this->getJsonAs(F::PLAYER, "/v1/character/{$character->id}")->json('budget');
+        $this->assertSame(2, $budget['spent']);
+    }
+
     public function test_downtime_kinds_are_refused_in_other_submission_types(): void
     {
         $this->makeCycle();
         $character = $this->makeCharacter();
 
         foreach (['advancement', 'adjustment', 'rewrite'] as $type) {
-            $id = $this->draft($character->id, $type, $this->changes(['downtime.narrative-impact']));
-            $this->asUser(F::PLAYER)
-                ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
-                ->assertStatus(400);
+            foreach (['downtime.narrative-impact', 'downtime.join-bloom'] as $kind) {
+                $id = $this->draft($character->id, $type, $this->changes([$kind]));
+                $this->asUser(F::PLAYER)
+                    ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
+                    ->assertStatus(400);
+            }
         }
     }
 

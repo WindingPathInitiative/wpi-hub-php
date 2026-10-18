@@ -30,12 +30,13 @@ class SheetSummary
         return array_values(array_filter([
             self::entry('Clade', [
                 self::name($sheet['cladeId'] ?? null),
+                self::labelled('Bloom', self::bloom($sheet)),
                 self::labelled('HP', $sheet['hp'] ?? null),
             ]),
             self::entry('Attributes', [self::attributes($sheet['attributes'] ?? null)]),
             self::entry('Face Cards', [self::faceCards($sheet['hand']['faceCardSuits'] ?? null)]),
             self::entry('Trained Skills', self::skills($sheet['trainedSkills'] ?? null)),
-            self::entry('Anchors', self::anchors($sheet['anchors'] ?? null)),
+            self::entry('Anchors', self::anchors($sheet['anchors'] ?? null, $sheet['bloomAnchorId'] ?? null)),
             self::entry('Germs', self::germs($sheet['germs'] ?? null, $sheet)),
         ]));
     }
@@ -119,18 +120,31 @@ class SheetSummary
     }
 
     /**
+     * The Bloom, read from its id; "(lapsed)" once its Anchor is gone.
+     */
+    private static function bloom(array $sheet): string
+    {
+        $bloomId = $sheet['bloomId'] ?? null;
+        if (! is_string($bloomId) || $bloomId === '') {
+            return '';
+        }
+
+        return self::name($bloomId).(empty($sheet['bloomAnchorId']) ? ' (lapsed)' : '');
+    }
+
+    /**
      * Destroyed Anchors are still worth showing on a new character — they are
      * rare there, and the reason is part of the character's history.
      *
      * @return string[]
      */
-    private static function anchors(mixed $anchors): array
+    private static function anchors(mixed $anchors, mixed $bloomAnchorId = null): array
     {
         if (! is_array($anchors)) {
             return [];
         }
 
-        return array_map(function ($anchor) {
+        return array_map(function ($anchor) use ($bloomAnchorId) {
             if (! is_array($anchor)) {
                 return '';
             }
@@ -147,6 +161,10 @@ class SheetSummary
             ]));
 
             $line = "{$name} — {$shape}".($meta === '' ? '' : ", {$meta}");
+
+            if ($bloomAnchorId !== null && ($anchor['anchorId'] ?? null) === $bloomAnchorId) {
+                $line .= ' — Bloom Anchor';
+            }
 
             if (($anchor['active'] ?? true) === false) {
                 $reason = is_string($anchor['lostReason'] ?? null) ? trim($anchor['lostReason']) : '';

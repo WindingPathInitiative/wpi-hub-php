@@ -44,6 +44,7 @@ class SubmissionService
             'downtime.destroy-anchor',
             'downtime.narrative-impact',
             'downtime.culture-germ',
+            'downtime.join-bloom',
         ],
         'adjustment' => ['adjust.germ-assignment', 'adjust.face-cards'],
         'rewrite' => ['rewrite'],
@@ -65,15 +66,43 @@ class SubmissionService
         'downtime.destroy-anchor',
         'downtime.narrative-impact',
         'downtime.culture-germ',
+        'downtime.join-bloom',
     ];
+
+    /**
+     * Bloom id => the Clade it takes members from. Mirrors BLOOMS in
+     * spore-catalog.ts; the hub has no rules catalogue, but six ids are cheap
+     * to mirror and stop a hand-built request inventing a Bloom.
+     *
+     * @var array<string, string>
+     */
+    public const BLOOMS = [
+        'root-wardens' => 'treehugger',
+        'the-mesh' => 'treehugger',
+        'corpse-flowers' => 'dumpster',
+        'class-composters' => 'dumpster',
+        'dreamcaps' => 'shroomhead',
+        'trip-sitters' => 'shroomhead',
+    ];
+
+    /**
+     * Blooms with no Hilum at their centre: a `hilum` sponsorship there means
+     * the ST's blessing. Mirrors `hilum: null` in spore-catalog.ts.
+     *
+     * @var string[]
+     */
+    public const BLOOMS_WITHOUT_HILUM = ['trip-sitters'];
 
     public function __construct(private readonly CharacterBudgetService $budget) {}
 
     /**
      * Full check of a submission against its character. Throws on the first
      * failure; callers run it on submit and again on approve.
+     *
+     * @param  bool  $approving  true when a storyteller is approving: the
+     *                           player-facing cycle and deadline gates no longer apply
      */
-    public function validate(Character $character, CharacterSubmission $submission): void
+    public function validate(Character $character, CharacterSubmission $submission, bool $approving = false): void
     {
         if ($character->isRetired()) {
             throw new UserException('Character is retired', 400);
@@ -87,7 +116,7 @@ class SubmissionService
         $this->validateVxp($character, $submission);
 
         match ($submission->type) {
-            'downtime' => $this->validateDowntime($character, $submission),
+            'downtime' => $this->validateDowntime($character, $submission, $approving),
             'adjustment' => $this->validateAdjustment($character, $submission),
             'rewrite' => $this->validateRewrite($submission),
             default => null,
@@ -127,12 +156,27 @@ class SubmissionService
 
     /**
      * Advancement count against the cycle budget, and the germ half-cap.
+     *
+     * Only a submission that itself spends is checked. Joining a Bloom with no
+     * improvement left takes the next one instead, leaving the budget at -1
+     * until the next cycle's grant — and that debt must not block the
+     * character's adjustments or next downtime, which spend nothing.
      */
     private function validateBudget(Character $character, CharacterSubmission $submission): void
     {
+        $joinsBloom = $this->changesWithKind($submission, 'downtime.join-bloom') !== [];
+
+        if (! $joinsBloom && $submission->changesOfKind('advancement.') === []) {
+            return;
+        }
+
         $summary = $this->budget->summary($character, $submission);
 
-        if ($summary['spent'] > $summary['budget']) {
+        // The Bloom may overdraw by one, but only from solvent, so the debt
+        // never stacks.
+        $allowed = $joinsBloom ? $summary['budget'] + 1 : $summary['budget'];
+
+        if ($summary['spent'] > $allowed) {
             throw new UserException(
                 "Advancement budget exceeded: {$summary['spent']} improvements used of {$summary['budget']} available",
                 400
@@ -169,28 +213,33 @@ class SubmissionService
     }
 
     /**
-     * Downtime is bound to the game's current cycle and its deadline, a
-     * character gets one downtime submission per cycle, and that submission
+     * Downtime is filed against the game's current cycle before its deadline,
+     * a character gets one downtime submission per cycle, and that submission
      * carries one Investigation and one Downtime Action.
+     *
+     * The cycle and deadline gates bind the player only: a storyteller may
+     * approve a downtime after its cycle has closed or been superseded.
      */
-    private function validateDowntime(Character $character, CharacterSubmission $submission): void
+    private function validateDowntime(Character $character, CharacterSubmission $submission, bool $approving): void
     {
-        $current = Cycle::current($character->org_unit_id);
+        if (! $approving) {
+            $current = Cycle::current($character->org_unit_id);
 
-        if ($current === null) {
-            throw new UserException('This game has no open cycle', 400);
-        }
-        if ($submission->cycle_id !== $current->id) {
-            throw new UserException('Downtime may only be submitted for the current cycle', 400);
-        }
-        if (! $current->downtimeIsOpen()) {
-            throw new UserException('The downtime deadline for this cycle has passed', 400);
+            if ($current === null) {
+                throw new UserException('This game has no open cycle', 400);
+            }
+            if ($submission->cycle_id !== $current->id) {
+                throw new UserException('Downtime may only be submitted for the current cycle', 400);
+            }
+            if (! $current->downtimeIsOpen()) {
+                throw new UserException('The downtime deadline for this cycle has passed', 400);
+            }
         }
 
         $existing = CharacterSubmission::query()
             ->where('character_id', $character->id)
             ->where('type', 'downtime')
-            ->where('cycle_id', $current->id)
+            ->where('cycle_id', $submission->cycle_id)
             ->committed()
             ->where('id', '!=', $submission->id ?? 0)
             ->exists();
@@ -201,6 +250,7 @@ class SubmissionService
 
         $this->validateDowntimeShape($submission);
         $this->validateCultureGerm($character, $submission);
+        $this->validateJoinBloom($character, $submission);
     }
 
     /**
@@ -262,6 +312,67 @@ class SubmissionService
             if (! in_array($germ['anchorId'] ?? null, $activeAnchorIds, true)) {
                 throw new UserException('Germ is not tethered to an active Anchor', 400);
             }
+        }
+    }
+
+    /**
+     * Joining a Bloom: one per submission, a real Bloom of the character's own
+     * Clade, not already a member, no other join waiting on the storyteller,
+     * and the Bloom Anchor an active Group Anchor. Skipped when no resolved
+     * sheet has been cached yet.
+     */
+    private function validateJoinBloom(Character $character, CharacterSubmission $submission): void
+    {
+        $changes = $this->changesWithKind($submission, 'downtime.join-bloom');
+        if ($changes === []) {
+            return;
+        }
+        if (count($changes) > 1) {
+            throw new UserException('A character may only join one Bloom at a time', 400);
+        }
+
+        $payload = $changes[0]['payload'] ?? [];
+        $bloomId = $payload['bloomId'] ?? null;
+
+        if (! is_string($bloomId) || ! array_key_exists($bloomId, self::BLOOMS)) {
+            throw new UserException('That Bloom does not exist', 400);
+        }
+
+        $inFlight = CharacterSubmission::query()
+            ->where('character_id', $character->id)
+            ->pending()
+            ->where('id', '!=', $submission->id ?? 0)
+            ->get()
+            ->contains(fn (CharacterSubmission $s) => $this->changesWithKind($s, 'downtime.join-bloom') !== []);
+
+        if ($inFlight) {
+            throw new UserException('A Bloom join is already waiting on the storyteller', 400);
+        }
+
+        $sheet = $character->resolved();
+        if ($sheet === null) {
+            return;
+        }
+
+        if (! empty($sheet['bloomId'])) {
+            throw new UserException('This character is already in a Bloom', 400);
+        }
+        if (self::BLOOMS[$bloomId] !== ($sheet['cladeId'] ?? null)) {
+            throw new UserException('A Bloom only takes members of its own Clade', 400);
+        }
+
+        $anchorId = $payload['anchorId'] ?? null;
+        $isGroup = false;
+
+        foreach ($this->activeAnchors($sheet) as $anchor) {
+            if (($anchor['anchorId'] ?? null) === $anchorId && ($anchor['type'] ?? null) === 'group') {
+                $isGroup = true;
+                break;
+            }
+        }
+
+        if (! $isGroup) {
+            throw new UserException('The Bloom Anchor must be an active Group Anchor', 400);
         }
     }
 
@@ -426,7 +537,7 @@ class SubmissionService
     {
         $character = $submission->character;
         $this->assertResolvable($submission);
-        $this->validate($character, $submission);
+        $this->validate($character, $submission, approving: true);
 
         DB::transaction(function () use ($submission, $character, $storyteller, $current) {
             $resolvedAt = now();

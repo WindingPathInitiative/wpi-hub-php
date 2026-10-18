@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Services\SubmissionService;
 use Illuminate\Support\Str;
 
 /**
@@ -73,6 +74,7 @@ class ChangeSummary
             'downtime.investigation' => [
                 'heading' => 'Investigation',
                 'lines' => self::lines([
+                    ($payload['skipped'] ?? false) === true ? 'Skipped' : '',
                     self::text($payload, 'topic'),
                     self::about($payload['anchorId'] ?? null, $sheet),
                 ]),
@@ -120,6 +122,16 @@ class ChangeSummary
             'downtime.culture-germ' => [
                 'heading' => 'Downtime Action — Culture a Germ',
                 'lines' => self::lines([self::germ($payload['germId'] ?? null, $sheet)]),
+            ],
+            'downtime.join-bloom' => [
+                'heading' => 'Downtime Action — Join a Bloom',
+                'lines' => self::lines([
+                    self::labelled('Bloom', self::idWords($payload['bloomId'] ?? null)),
+                    self::sponsor($payload['sponsor'] ?? null, $payload['bloomId'] ?? null),
+                    self::labelled('Bloom Anchor', self::anchorName($payload['anchorId'] ?? null, $sheet)),
+                    self::text($payload, 'describe'),
+                    'Costs one improvement.',
+                ]),
             ],
             'adjust.germ-assignment' => [
                 'heading' => 'Adjustment — Germ Assignment',
@@ -259,6 +271,34 @@ class ChangeSummary
         return is_numeric($cost)
             ? "Bought an improvement with {$cost} VXP."
             : 'Bought an improvement with VXP.';
+    }
+
+    /**
+     * How a Bloom join got in: the Hilum's own blessing, or a member's
+     * sponsorship and the accomplishment they cited. A Bloom with no Hilum is
+     * blessed by the ST instead, under the same `hilum` value.
+     */
+    private static function sponsor(mixed $sponsor, mixed $bloomId): string
+    {
+        if (! is_array($sponsor)) {
+            return '';
+        }
+        if (($sponsor['kind'] ?? null) === 'hilum') {
+            return in_array($bloomId, SubmissionService::BLOOMS_WITHOUT_HILUM, true)
+                ? 'Blessed by the ST'
+                : 'Blessed by the Hilum';
+        }
+
+        $name = self::text($sponsor, 'name');
+        $accomplishment = self::text($sponsor, 'accomplishment');
+
+        return 'Sponsored by '.($name === '' ? 'a member' : $name)
+            .($accomplishment === '' ? '' : " for {$accomplishment}");
+    }
+
+    private static function idWords(mixed $id): string
+    {
+        return is_string($id) && $id !== '' ? Str::headline($id) : '';
     }
 
     /**

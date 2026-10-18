@@ -199,4 +199,39 @@ class DowntimeMailTest extends CharacterTestCase
                 && ! str_contains($body, '>a1<');
         });
     }
+
+    public function test_the_body_names_the_bloom_and_the_bloom_anchor(): void
+    {
+        $character = $this->makeCharacter();
+
+        $this->fileDowntime($character->id, 'downtime.join-bloom')->assertOk();
+
+        Mail::assertSent(DowntimeSubmitted::class, function (DowntimeSubmitted $mail) {
+            $body = $mail->render();
+
+            return str_contains($body, 'Join a Bloom')
+                && str_contains($body, 'Bloom: Corpse Flowers')
+                && str_contains($body, 'Sponsored by Ash for Buried the Kensington dead')
+                && str_contains($body, 'Bloom Anchor: The Crew')
+                && str_contains($body, 'Costs one improvement');
+        });
+    }
+
+    public function test_a_hilumless_bloom_reads_as_the_st_s_blessing(): void
+    {
+        $sheet = $this->sheet();
+        $sheet['cladeId'] = 'shroomhead';
+        $character = $this->makeCharacter(['current_json' => $sheet]);
+
+        $changes = $this->downtime('downtime.join-bloom');
+        $changes[1]['payload']['bloomId'] = 'trip-sitters';
+        $changes[1]['payload']['sponsor'] = ['kind' => 'hilum'];
+
+        $id = $this->asUser(F::PLAYER)
+            ->postJson("/v1/character/{$character->id}/submission", ['type' => 'downtime', 'changes_json' => $changes])
+            ->json('id');
+        $this->asUser(F::PLAYER)->postJson("/v1/character/{$character->id}/submission/{$id}/submit")->assertOk();
+
+        Mail::assertSent(DowntimeSubmitted::class, fn (DowntimeSubmitted $mail) => str_contains($mail->render(), 'Blessed by the ST'));
+    }
 }

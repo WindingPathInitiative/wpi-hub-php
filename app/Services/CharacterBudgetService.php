@@ -22,6 +22,11 @@ use Illuminate\Support\Collection;
  * rewrite resets the running spend to the advancements embedded in it, and only
  * later submissions add on top. VXP purchases survive a rewrite — the 20 VXP
  * were really spent — so they are counted across the whole history.
+ *
+ * Joining a Bloom costs one improvement. Like VXP it was paid for in the
+ * fiction, so it too survives a rewrite. It does not count toward the germ
+ * half-cap: the Bloom Germ comes free with the Bloom. With no improvement left
+ * a join takes the next one, so `remaining` can read -1.
  */
 class CharacterBudgetService
 {
@@ -132,8 +137,14 @@ class CharacterBudgetService
     {
         $total = 0;
         $germs = 0;
+        $blooms = 0;
 
         foreach ($submissions as $submission) {
+            $blooms += count(array_filter(
+                $submission->changes_json ?? [],
+                fn ($c) => is_array($c) && ($c['kind'] ?? null) === 'downtime.join-bloom'
+            ));
+
             $rewrites = $submission->changesOfKind('rewrite');
 
             if ($rewrites !== []) {
@@ -160,6 +171,6 @@ class CharacterBudgetService
             $germs += count(array_filter($advancements, fn ($c) => $c['kind'] === 'advancement.germ'));
         }
 
-        return [$total, $germs];
+        return [$total + $blooms, $germs];
     }
 }
