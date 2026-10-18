@@ -8,8 +8,10 @@ use App\Http\Controllers\Concerns\ResolvesCharacters;
 use App\Http\Controllers\Concerns\ValidatesLegacy;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\CharacterResource;
+use App\Http\Resources\CycleResource;
 use App\Models\Character;
 use App\Models\CharacterSubmission;
+use App\Models\Cycle;
 use App\Models\OrgUnit;
 use App\Services\CharacterBudgetService;
 use App\Services\SubmissionService;
@@ -27,6 +29,9 @@ class CharacterController extends Controller
 {
     use ResolvesCharacters;
     use ValidatesLegacy;
+
+    /** Which of a character's downtimes for the cycle speaks for them. */
+    private const DOWNTIME_PRECEDENCE = ['approved' => 0, 'submitted' => 1, 'rejected' => 2];
 
     public function __construct(
         private readonly CharacterBudgetService $budget,
@@ -200,6 +205,66 @@ class CharacterController extends Controller
             ->get();
 
         return CharacterResource::collection($characters);
+    }
+
+    /**
+     * Storyteller demographics: every character in the game (retired included,
+     * the client filters) projected down to clade, bloom, active Anchors and
+     * where their downtime stands for the current cycle. The full sheet never
+     * leaves the server.
+     */
+    public function demographics(int $unit)
+    {
+        $characters = Character::where('org_unit_id', $unit)
+            ->with('user')
+            ->orderBy('name')
+            ->get();
+
+        $cycle = Cycle::current($unit);
+
+        // Drafts are the player's private workspace, so they never count here.
+        $downtimes = $cycle === null ? collect() : CharacterSubmission::whereIn('character_id', $characters->modelKeys())
+            ->where('type', 'downtime')
+            ->where('cycle_id', $cycle->id)
+            ->where('status', '!=', 'draft')
+            ->get(['id', 'character_id', 'status', 'submitted_at'])
+            ->groupBy('character_id')
+            ->map(fn ($subs) => $subs->sortBy(fn ($s) => self::DOWNTIME_PRECEDENCE[$s->status] ?? 99)->first());
+
+        return response()->json([
+            'cycle' => $cycle ? (new CycleResource($cycle))->resolve() : null,
+            'characters' => $characters->map(fn (Character $c) => $this->demographicsRow($c, $downtimes->get($c->id)))->all(),
+        ]);
+    }
+
+    private function demographicsRow(Character $character, ?CharacterSubmission $downtime): array
+    {
+        $sheet = $character->resolved() ?? [];
+
+        $anchors = array_values(array_filter(
+            $sheet['anchors'] ?? [],
+            fn ($anchor) => is_array($anchor) && ($anchor['active'] ?? true) !== false,
+        ));
+
+        return [
+            'id' => $character->id,
+            'name' => $character->name,
+            'player_name' => $character->user?->nickname,
+            'retired_at' => $character->retired_at,
+            'clade_id' => $sheet['cladeId'] ?? null,
+            'bloom_id' => $sheet['bloomId'] ?? null,
+            'anchors' => array_map(fn (array $anchor) => [
+                'type' => $anchor['type'] ?? null,
+                'name' => $anchor['name'] ?? '',
+                'tag' => $anchor['tag'] ?? null,
+                'category' => $anchor['category'] ?? null,
+            ], $anchors),
+            'downtime' => $downtime === null ? null : [
+                'submission_id' => $downtime->id,
+                'status' => $downtime->status,
+                'submitted_at' => $downtime->submitted_at,
+            ],
+        ];
     }
 
     /**

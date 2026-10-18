@@ -135,6 +135,7 @@ Route::prefix('org-unit/{unit}')->whereNumber('unit')->middleware('cognito')->gr
     Route::post('/cycle', [CycleController::class, 'store'])->middleware('storyteller');
     Route::get('/submissions', [SubmissionController::class, 'queue'])->middleware('storyteller');
     Route::get('/characters', [CharacterController::class, 'roster'])->middleware('storyteller');
+    Route::get('/demographics', [CharacterController::class, 'demographics'])->middleware('storyteller');
 });
 
 Route::middleware(['cognito', 'storyteller'])->group(function () {
