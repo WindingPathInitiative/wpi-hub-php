@@ -74,6 +74,7 @@ class ChangeSummary
             'downtime.investigation' => [
                 'heading' => 'Investigation',
                 'lines' => self::lines([
+                    ($payload['skipped'] ?? false) === true ? 'Skipped' : '',
                     self::text($payload, 'topic'),
                     self::about($payload['anchorId'] ?? null, $sheet),
                 ]),
