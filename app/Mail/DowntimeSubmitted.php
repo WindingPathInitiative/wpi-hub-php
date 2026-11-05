@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Models\CharacterSubmission;
+use App\Models\OrgUnit;
 use App\Support\ChangeSummary;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -55,7 +56,8 @@ class DowntimeSubmitted extends Mailable
                 'playerName' => $character?->user?->fullName ?? $this->player,
                 'venue' => $character?->unit?->name,
                 'cycle' => $submission->cycle?->name,
-                'dueAt' => $submission->cycle?->downtime_due_at,
+                'dueAt' => $submission->cycle?->downtime_due_at
+                    ?->copy()->setTimezone($character?->unit?->gameTimezone() ?? OrgUnit::DEFAULT_TIMEZONE),
                 'note' => $submission->note,
                 'entries' => ChangeSummary::entries(
                     $submission->changes_json ?? [],

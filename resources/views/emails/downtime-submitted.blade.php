@@ -7,7 +7,7 @@
 @section('subheading')
     {{ $playerName }}@if ($venue) &middot; {{ $venue }}@endif
     @if ($cycle) &middot; {{ $cycle }}@endif
-    @if ($dueAt) &middot; due {{ $dueAt->format('j M Y, g:ia') }}@endif
+    @if ($dueAt) &middot; due {{ $dueAt->format('j M Y, g:ia T') }}@endif
 @endsection
 
 @section('body')

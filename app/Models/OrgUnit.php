@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property ?string $type
  * @property ?string $defDoc
  * @property string $parentPath
+ * @property ?string $timezone
  */
 class OrgUnit extends Model
 {
@@ -31,6 +32,29 @@ class OrgUnit extends Model
     public $timestamps = false;
 
     protected $guarded = ['id'];
+
+    /**
+     * The timezones a game may run on, IANA name => label. A game's cycle
+     * dates are entered and shown on its clock.
+     *
+     * @var array<string, string>
+     */
+    public const TIMEZONES = [
+        'America/New_York' => 'Eastern',
+        'America/Chicago' => 'Central',
+        'America/Denver' => 'Mountain',
+        'America/Los_Angeles' => 'Pacific',
+    ];
+
+    public const DEFAULT_TIMEZONE = 'America/New_York';
+
+    /**
+     * The game's timezone, falling back to the default when unset.
+     */
+    public function gameTimezone(): string
+    {
+        return $this->timezone ?? self::DEFAULT_TIMEZONE;
+    }
 
     /**
      * Ordered org-unit types, highest to lowest. The index doubles as "depth"

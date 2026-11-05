@@ -131,6 +131,8 @@ Route::prefix('character')->middleware('cognito')->group(function () {
 */
 Route::prefix('org-unit/{unit}')->whereNumber('unit')->middleware('cognito')->group(function () {
     Route::get('/cycles', [CycleController::class, 'index']);
+    Route::get('/timezone', [CycleController::class, 'timezone']);
+    Route::put('/timezone', [CycleController::class, 'setTimezone'])->middleware('storyteller');
 
     Route::post('/cycle', [CycleController::class, 'store'])->middleware('storyteller');
     Route::get('/submissions', [SubmissionController::class, 'queue'])->middleware('storyteller');

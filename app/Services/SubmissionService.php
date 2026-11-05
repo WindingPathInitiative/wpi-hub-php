@@ -70,6 +70,17 @@ class SubmissionService
     ];
 
     /**
+     * The Downtime Actions still taken during a cycle's grace period: none
+     * that investigate or move against an Anchor.
+     */
+    public const GRACE_DOWNTIME_ACTIONS = [
+        'downtime.develop-anchor',
+        'downtime.narrative-impact',
+        'downtime.culture-germ',
+        'downtime.join-bloom',
+    ];
+
+    /**
      * Bloom id => the Clade it takes members from. Mirrors BLOOMS in
      * spore-catalog.ts; the hub has no rules catalogue, but six ids are cheap
      * to mirror and stop a hand-built request inventing a Bloom.
@@ -213,7 +224,8 @@ class SubmissionService
     }
 
     /**
-     * Downtime is filed against the game's current cycle before its deadline,
+     * Downtime is filed against the game's current cycle before its deadline
+     * (or, restricted, within its grace period),
      * a character gets one downtime submission per cycle, and that submission
      * carries one Investigation and one Downtime Action.
      *
@@ -234,6 +246,9 @@ class SubmissionService
             if (! $current->downtimeIsOpen()) {
                 throw new UserException('The downtime deadline for this cycle has passed', 400);
             }
+            if ($current->downtimeInGrace()) {
+                $this->validateGraceDowntime($submission);
+            }
         }
 
         $existing = CharacterSubmission::query()
@@ -251,6 +266,24 @@ class SubmissionService
         $this->validateDowntimeShape($submission);
         $this->validateCultureGerm($character, $submission);
         $this->validateJoinBloom($character, $submission);
+    }
+
+    /**
+     * Late downtime, filed in the grace period: the Investigation must be
+     * skipped and the Action one of GRACE_DOWNTIME_ACTIONS.
+     */
+    private function validateGraceDowntime(CharacterSubmission $submission): void
+    {
+        foreach ($submission->changes_json ?? [] as $change) {
+            $kind = is_array($change) ? (string) ($change['kind'] ?? '') : '';
+
+            if ($kind === 'downtime.investigation' && ($change['payload']['skipped'] ?? false) !== true) {
+                throw new UserException('Investigations are closed for this downtime cycle', 400);
+            }
+            if (in_array($kind, self::DOWNTIME_ACTIONS, true) && ! in_array($kind, self::GRACE_DOWNTIME_ACTIONS, true)) {
+                throw new UserException('That Downtime Action is no longer available for this downtime cycle', 400);
+            }
+        }
     }
 
     /**

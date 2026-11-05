@@ -22,6 +22,7 @@ use Illuminate\Support\Carbon;
  * @property int $improvements_granted
  * @property Carbon $opens_at
  * @property ?Carbon $downtime_due_at
+ * @property ?Carbon $downtime_grace_ends_at
  */
 class Cycle extends Model
 {
@@ -35,6 +36,7 @@ class Cycle extends Model
             'improvements_granted' => 'integer',
             'opens_at' => 'datetime',
             'downtime_due_at' => 'datetime',
+            'downtime_grace_ends_at' => 'datetime',
         ];
     }
 
@@ -70,8 +72,28 @@ class Cycle extends Model
             ->first();
     }
 
+    /**
+     * Downtime is accepted until the deadline, or until the grace period ends
+     * when there is one.
+     */
     public function downtimeIsOpen(): bool
     {
-        return $this->downtime_due_at === null || now()->lt($this->downtime_due_at);
+        if ($this->downtime_due_at === null || now()->lt($this->downtime_due_at)) {
+            return true;
+        }
+
+        return $this->downtimeInGrace();
+    }
+
+    /**
+     * Past the deadline but inside the grace period: late downtime is taken,
+     * with no Investigation and a restricted set of Downtime Actions.
+     */
+    public function downtimeInGrace(): bool
+    {
+        return $this->downtime_due_at !== null
+            && $this->downtime_grace_ends_at !== null
+            && now()->gte($this->downtime_due_at)
+            && now()->lt($this->downtime_grace_ends_at);
     }
 }

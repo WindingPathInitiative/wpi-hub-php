@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\CharacterSubmission;
 use App\Models\Cycle;
+use App\Models\OrgUnit;
 use Database\Seeders\CharacterFixturesSeeder as F;
 use Tests\CharacterTestCase;
 
@@ -36,6 +37,51 @@ class CycleTest extends CharacterTestCase
         $res = $this->getJsonAs(F::PLAYER, '/v1/org-unit/'.F::GAME.'/cycles')->assertOk();
         $this->assertTrue($res->json('0.is_open'));
         $this->assertFalse($res->json('0.downtime_open'));
+    }
+
+    public function test_a_grace_period_keeps_downtime_open_past_the_deadline(): void
+    {
+        $this->makeCycle(['downtime_due_at' => now()->subDay(), 'downtime_grace_ends_at' => now()->addDay()]);
+
+        $res = $this->getJsonAs(F::PLAYER, '/v1/org-unit/'.F::GAME.'/cycles')->assertOk();
+        $this->assertTrue($res->json('0.downtime_open'));
+        $this->assertTrue($res->json('0.downtime_in_grace'));
+
+        $this->travelTo(now()->addDays(2));
+        $res = $this->getJsonAs(F::PLAYER, '/v1/org-unit/'.F::GAME.'/cycles')->assertOk();
+        $this->assertFalse($res->json('0.downtime_open'));
+        $this->assertFalse($res->json('0.downtime_in_grace'));
+    }
+
+    // --- /org-unit/{unit}/timezone ----------------------------------------
+
+    public function test_a_game_defaults_to_eastern(): void
+    {
+        $res = $this->getJsonAs(F::PLAYER, '/v1/org-unit/'.F::GAME.'/timezone')->assertOk();
+        $this->assertSame('America/New_York', $res->json('timezone'));
+        $this->assertSame(
+            ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles'],
+            array_column($res->json('timezones'), 'id'),
+        );
+    }
+
+    public function test_a_storyteller_sets_the_games_timezone(): void
+    {
+        $url = '/v1/org-unit/'.F::GAME.'/timezone';
+
+        $this->asUser(F::PLAYER)->putJson($url, ['timezone' => 'America/Denver'])->assertStatus(403);
+        $this->asUser(F::OTHER_ST)->putJson($url, ['timezone' => 'America/Denver'])->assertStatus(403);
+        $this->asUser(F::ST)->putJson($url, ['timezone' => 'Europe/London'])->assertStatus(400);
+
+        $this->makeCycle();
+        $this->asUser(F::ST)->putJson($url, ['timezone' => 'America/Denver'])
+            ->assertOk()
+            ->assertJsonPath('timezone', 'America/Denver');
+        $this->assertSame('America/Denver', OrgUnit::find(F::GAME)->timezone);
+
+        // Cycles carry the game's clock.
+        $this->getJsonAs(F::PLAYER, '/v1/org-unit/'.F::GAME.'/cycles')
+            ->assertJsonPath('0.timezone', 'America/Denver');
     }
 
     // --- POST /org-unit/{unit}/cycle --------------------------------------
@@ -72,6 +118,23 @@ class CycleTest extends CharacterTestCase
             'opens_at' => '2026-06-01 18:00:00',
             'downtime_due_at' => '2026-05-01 18:00:00',
         ])->assertStatus(400);
+        $this->asUser(F::ST)->postJson('/v1/org-unit/'.F::GAME.'/cycle', [
+            'name' => 'Grace before deadline',
+            'opens_at' => '2026-06-01 18:00:00',
+            'downtime_due_at' => '2026-06-20 18:00:00',
+            'downtime_grace_ends_at' => '2026-06-19 18:00:00',
+        ])->assertStatus(400);
+        $this->asUser(F::ST)->postJson('/v1/org-unit/'.F::GAME.'/cycle', [
+            'name' => 'Grace without deadline',
+            'opens_at' => '2026-06-01 18:00:00',
+            'downtime_grace_ends_at' => '2026-06-19 18:00:00',
+        ])->assertStatus(400);
+        $this->asUser(F::ST)->postJson('/v1/org-unit/'.F::GAME.'/cycle', [
+            'name' => 'Good window',
+            'opens_at' => '2026-06-01 18:00:00',
+            'downtime_due_at' => '2026-06-20 18:00:00',
+            'downtime_grace_ends_at' => '2026-06-23 18:00:00',
+        ])->assertStatus(201);
     }
 
     // --- PUT /cycle/{id} --------------------------------------------------

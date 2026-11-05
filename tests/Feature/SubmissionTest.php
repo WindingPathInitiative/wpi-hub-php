@@ -234,6 +234,37 @@ class SubmissionTest extends CharacterTestCase
             ->assertStatus(400);
     }
 
+    public function test_grace_period_downtime_skips_investigation_and_limits_actions(): void
+    {
+        $this->makeCycle(['downtime_due_at' => now()->subDay(), 'downtime_grace_ends_at' => now()->addDay()]);
+        $skipped = ['kind' => 'downtime.investigation', 'payload' => ['topic' => '', 'anchorId' => null, 'skipped' => true]];
+
+        // An actual Investigation is refused.
+        $character = $this->makeCharacter(['name' => 'Late investigator']);
+        $id = $this->draft($character->id, 'downtime', $this->downtime('downtime.narrative-impact'));
+        $this->asUser(F::PLAYER)
+            ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
+            ->assertStatus(400);
+
+        foreach (SubmissionService::DOWNTIME_ACTIONS as $action) {
+            $character = $this->makeCharacter(['name' => "Late {$action}"]);
+            $changes = [$skipped, $this->changes([$action])[0]];
+            $id = $this->draft($character->id, 'downtime', $changes);
+
+            $this->asUser(F::PLAYER)
+                ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
+                ->assertStatus(in_array($action, SubmissionService::GRACE_DOWNTIME_ACTIONS, true) ? 200 : 400);
+        }
+
+        // Once the grace period ends, nothing is taken.
+        $character = $this->makeCharacter(['name' => 'Too late']);
+        $id = $this->draft($character->id, 'downtime', [$skipped, $this->changes(['downtime.narrative-impact'])[0]]);
+        $this->travelTo(now()->addDays(2));
+        $this->asUser(F::PLAYER)
+            ->postJson("/v1/character/{$character->id}/submission/{$id}/submit")
+            ->assertStatus(400);
+    }
+
     public function test_a_storyteller_approves_downtime_after_its_cycle_closes(): void
     {
         $old = $this->makeCycle(['opens_at' => now()->subDays(2), 'downtime_due_at' => now()->addHour()]);
