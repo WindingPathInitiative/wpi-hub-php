@@ -159,7 +159,7 @@ class OrgUnitController extends Controller
         if ($parentsDepth !== '0' || $childrenDepth !== '0') {
             [$parents, $children] = $this->splitChain($unit, $request);
             $data['parents'] = $this->trimParents($parents, $parentsDepth);
-            $data['children'] = $this->trimChildren($this->sortChain($children), $childrenDepth);
+            $data['children'] = $this->trimChildren($this->sortChain($children, $unit->parentPath), $childrenDepth);
         }
 
         // setDepth(0) removes the key entirely.
@@ -374,7 +374,7 @@ class OrgUnitController extends Controller
     }
 
     /**
-     * @return array{0: array<int,array>, 1: array<int,array>} [parents, children] (full JSON)
+     * @return array{0: array<int,array>, 1: array<int,array>} [parents (full JSON), children (full JSON keyed by parentPath)]
      */
     private function splitChain(OrgUnit $unit, Request $request): array
     {
@@ -396,7 +396,7 @@ class OrgUnitController extends Controller
             if (in_array($node->id, $parentIds, true)) {
                 $parents[] = $json;
             } else {
-                $children[] = $json;
+                $children[$node->parentPath] = $json;
             }
         }
 
@@ -404,32 +404,30 @@ class OrgUnitController extends Controller
     }
 
     /**
-     * Builds the children list into a hierarchy by type depth. Ports sortChain.
+     * Nests the descendants of the unit at $rootPath by their actual parentage
+     * (parentPath), so a Venue directly under a Nation or Region lands there
+     * rather than under whichever Chapter happens to sort before it.
+     *
+     * @param  array<string,array>  $units  full JSON keyed by parentPath, in path order
      */
-    private function sortChain(array $units): array
+    private function sortChain(array $units, string $rootPath): array
     {
-        $types = OrgUnit::getTypes();
-        $depth = fn (array $u) => array_search($u['type'], $types, true);
-
-        foreach ($units as &$u) {
-            $u['children'] = [];
-        }
-        unset($u);
-
-        for ($i = count($units) - 1; $i > 0; $i--) {
-            if ($units[$i] === false) {
-                continue;
-            }
-            for ($u = $i - 1; $u >= 0; $u--) {
-                if ($units[$u] !== false && $depth($units[$i]) > $depth($units[$u])) {
-                    $units[$u]['children'][] = $units[$i];
-                    $units[$i] = false;
-                    break;
-                }
-            }
+        $byParent = [];
+        foreach ($units as $path => $json) {
+            $byParent[substr($path, 0, strrpos($path, '.'))][] = [$path, $json];
         }
 
-        return array_values(array_filter($units, fn ($u) => $u !== false));
+        $build = function (string $parentPath) use (&$build, $byParent): array {
+            $out = [];
+            foreach ($byParent[$parentPath] ?? [] as [$path, $json]) {
+                $json['children'] = $build($path);
+                $out[] = $json;
+            }
+
+            return $out;
+        };
+
+        return $build($rootPath);
     }
 
     private function trimParents(array $parents, ?string $depth): array
