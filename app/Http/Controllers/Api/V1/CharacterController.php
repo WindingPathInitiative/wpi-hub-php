@@ -43,7 +43,8 @@ class CharacterController extends Controller
      */
     public function index(Request $request)
     {
-        $characters = Character::where('user_id', $request->user()->id)
+        $characters = Character::standard()
+            ->where('user_id', $request->user()->id)
             ->when(! $request->boolean('includeRetired'), fn ($q) => $q->active())
             ->orderBy('name')
             ->get();
@@ -97,9 +98,7 @@ class CharacterController extends Controller
         }
 
         $orgUnitId = $attributes['org_unit_id'] ?? null;
-        if ($orgUnitId !== null && ! OrgUnit::whereKey($orgUnitId)->exists()) {
-            throw new UserException('Org unit not found', 404);
-        }
+        $this->assertPlayerGame($orgUnitId);
 
         $character = new Character([
             'name' => $name,
@@ -137,9 +136,7 @@ class CharacterController extends Controller
 
         if (array_key_exists('org_unit_id', $attributes)) {
             $orgUnitId = $attributes['org_unit_id'];
-            if ($orgUnitId !== null && ! OrgUnit::whereKey($orgUnitId)->exists()) {
-                throw new UserException('Org unit not found', 404);
-            }
+            $this->assertPlayerGame($orgUnitId);
             if ($orgUnitId !== $character->org_unit_id && $this->hasPendingSubmissions($character)) {
                 throw new UserException('Resolve pending submissions before moving this character', 400);
             }
@@ -198,7 +195,9 @@ class CharacterController extends Controller
      */
     public function roster(Request $request, int $unit)
     {
-        $characters = Character::where('org_unit_id', $unit)
+        // Convention pre-gens have their own list (convention-characters).
+        $characters = Character::standard()
+            ->where('org_unit_id', $unit)
             ->when(! $request->boolean('includeRetired'), fn ($q) => $q->active())
             ->with('user')
             ->orderBy('name')
@@ -215,7 +214,8 @@ class CharacterController extends Controller
      */
     public function demographics(int $unit)
     {
-        $characters = Character::where('org_unit_id', $unit)
+        $characters = Character::standard()
+            ->where('org_unit_id', $unit)
             ->with('user')
             ->orderBy('name')
             ->get();
@@ -345,6 +345,25 @@ class CharacterController extends Controller
             + ['submission_id' => $submission->id],
             201
         );
+    }
+
+    /**
+     * A player character may sit in no game or in a player game, but never in
+     * a convention venue: those hold storyteller-managed pre-gens only.
+     */
+    private function assertPlayerGame(?int $orgUnitId): void
+    {
+        if ($orgUnitId === null) {
+            return;
+        }
+
+        $unit = OrgUnit::find($orgUnitId);
+        if ($unit === null) {
+            throw new UserException('Org unit not found', 404);
+        }
+        if ($unit->isConvention()) {
+            throw new UserException('Characters cannot be added to a convention venue', 400);
+        }
     }
 
     private function hasPendingSubmissions(Character $character): bool

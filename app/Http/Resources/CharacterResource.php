@@ -42,7 +42,9 @@ class CharacterResource extends JsonResource
 
         $data = [
             'id' => $c->id,
+            'kind' => $c->kind ?? 'standard',
             'name' => $c->name,
+            'sheet_code' => $c->sheet_code,
             'user_id' => $c->user_id,
             'org_unit_id' => $c->org_unit_id,
             'retired_at' => $c->retired_at,
