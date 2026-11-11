@@ -26,7 +26,7 @@ trait ResolvesCharacters
         if ($character === null) {
             throw new UserException('Character not found', 404);
         }
-        if ($character->user_id !== $request->user()->id) {
+        if ($character->user_id === null || $character->user_id !== $request->user()->id) {
             throw new UserException('Not authorized to view this character', 403);
         }
 
@@ -42,6 +42,8 @@ trait ResolvesCharacters
         $character = $request->attributes->get('storyteller.character');
 
         if ($character instanceof Character && $character->id === $id) {
+            $this->assertStandard($character);
+
             return $character;
         }
 
@@ -49,6 +51,7 @@ trait ResolvesCharacters
         if ($character === null) {
             throw new UserException('Character not found', 404);
         }
+        $this->assertStandard($character);
 
         return $character;
     }
@@ -64,7 +67,7 @@ trait ResolvesCharacters
         if ($character === null) {
             throw new UserException('Character not found', 404);
         }
-        if ($character->user_id === $request->user()->id) {
+        if ($character->user_id !== null && $character->user_id === $request->user()->id) {
             return $character;
         }
         if ($character->org_unit_id === null) {
@@ -78,7 +81,20 @@ trait ResolvesCharacters
             EnsureStoryteller::ROLE,
             $request->user(),
         );
+        // Checked after authorization so a player probing ids learns nothing.
+        $this->assertStandard($character);
 
         return $character;
+    }
+
+    /**
+     * Convention pre-gens have none of a player character's machinery
+     * (envelope, submissions, retirement); they're edited on their own routes.
+     */
+    protected function assertStandard(Character $character): void
+    {
+        if ($character->isConvention()) {
+            throw new UserException('Convention characters are edited from the convention screens', 400);
+        }
     }
 }

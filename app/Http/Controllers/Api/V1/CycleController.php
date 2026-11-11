@@ -188,7 +188,7 @@ class CycleController extends Controller
 
         $budget = app(CharacterBudgetService::class);
 
-        foreach (Character::where('org_unit_id', $cycle->org_unit_id)->active()->get() as $character) {
+        foreach (Character::standard()->where('org_unit_id', $cycle->org_unit_id)->active()->get() as $character) {
             $summary = $budget->summary($character);
             if ($summary['spent'] > $summary['budget'] - $drop) {
                 throw new UserException(

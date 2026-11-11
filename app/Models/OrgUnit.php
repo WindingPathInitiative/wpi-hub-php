@@ -57,6 +57,21 @@ class OrgUnit extends Model
     }
 
     /**
+     * A convention venue runs one-shot games with storyteller-managed pre-gens
+     * rather than player characters. Marked by `-CON-` in the unit's code, e.g.
+     * SPOREBOUND-CON-PAX. Mirrored client-side by `isConventionVenue()`.
+     */
+    public function isConvention(): bool
+    {
+        return self::isConventionCode($this->code);
+    }
+
+    public static function isConventionCode(?string $code): bool
+    {
+        return $code !== null && str_contains(strtoupper($code), '-CON-');
+    }
+
+    /**
      * Ordered org-unit types, highest to lowest. The index doubles as "depth"
      * (getDepth in the Node model) for chain trimming.
      *

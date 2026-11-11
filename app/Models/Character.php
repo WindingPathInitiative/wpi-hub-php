@@ -9,7 +9,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * A Sporebound character owned by a user.
+ * A Sporebound character: a player's character, or a storyteller-managed
+ * convention pre-gen.
+ *
+ * `kind` decides the shape of `character_json`:
+ *   'standard'   -> the v2 envelope below, owned by `user_id`
+ *   'convention' -> a ConventionCharacter document (App\Support\ConventionCharacter);
+ *                   no owner, no envelope, no submissions, `current_json` null
  *
  * `character_json` holds the v2 envelope — {formatVersion, identity, starting,
  * changes, current} — where `changes` is the ordered list of *approved* changes.
@@ -17,8 +23,11 @@ use Illuminate\Support\Carbon;
  * the envelope when a storyteller approves them.
  *
  * @property int $id
+ * @property string $kind
  * @property string $name
- * @property int $user_id
+ * @property ?string $sheet_code
+ * @property ?int $user_id
+ * @property ?int $created_by
  * @property ?int $org_unit_id
  * @property array $character_json
  * @property ?array $current_json
@@ -28,7 +37,15 @@ use Illuminate\Support\Carbon;
  */
 class Character extends Model
 {
+    public const KIND_STANDARD = 'standard';
+
+    public const KIND_CONVENTION = 'convention';
+
     protected $table = 'characters';
+
+    protected $attributes = [
+        'kind' => self::KIND_STANDARD,
+    ];
 
     protected $guarded = ['id'];
 
@@ -61,6 +78,23 @@ class Character extends Model
         return $query->whereNull('retired_at');
     }
 
+    /** Player characters: the v2 envelope, owned by a user. */
+    public function scopeStandard(Builder $query): Builder
+    {
+        return $query->where('kind', self::KIND_STANDARD);
+    }
+
+    /** Storyteller-managed convention pre-gens. */
+    public function scopeConvention(Builder $query): Builder
+    {
+        return $query->where('kind', self::KIND_CONVENTION);
+    }
+
+    public function isConvention(): bool
+    {
+        return $this->kind === self::KIND_CONVENTION;
+    }
+
     public function isRetired(): bool
     {
         return $this->retired_at !== null;
@@ -72,6 +106,10 @@ class Character extends Model
      */
     public function resolved(): ?array
     {
+        if ($this->isConvention()) {
+            return null;
+        }
+
         return $this->current_json ?? ($this->character_json['current'] ?? null);
     }
 }

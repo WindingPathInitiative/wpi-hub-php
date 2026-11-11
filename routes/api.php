@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\CharacterController;
+use App\Http\Controllers\Api\V1\ConventionCharacterController;
 use App\Http\Controllers\Api\V1\CycleController;
 use App\Http\Controllers\Api\V1\OfficeController;
 use App\Http\Controllers\Api\V1\OrgUnitController;
@@ -123,6 +124,14 @@ Route::prefix('character')->middleware('cognito')->group(function () {
         ->whereNumber('character')->middleware('storyteller');
     Route::delete('/{character}/anchor/{anchorId}', [CharacterController::class, 'removeAnchor'])
         ->whereNumber('character')->middleware('storyteller');
+
+    // Convention pre-gens (convention-plan.md): storyteller-only whole-document edits.
+    Route::get('/{character}/convention', [ConventionCharacterController::class, 'show'])
+        ->whereNumber('character')->middleware('storyteller');
+    Route::put('/{character}/convention', [ConventionCharacterController::class, 'update'])
+        ->whereNumber('character')->middleware('storyteller');
+    Route::delete('/{character}/convention', [ConventionCharacterController::class, 'destroy'])
+        ->whereNumber('character')->middleware('storyteller');
 });
 
 /*
@@ -138,6 +147,10 @@ Route::prefix('org-unit/{unit}')->whereNumber('unit')->middleware('cognito')->gr
     Route::get('/submissions', [SubmissionController::class, 'queue'])->middleware('storyteller');
     Route::get('/characters', [CharacterController::class, 'roster'])->middleware('storyteller');
     Route::get('/demographics', [CharacterController::class, 'demographics'])->middleware('storyteller');
+
+    Route::get('/convention-characters', [ConventionCharacterController::class, 'index'])->middleware('storyteller');
+    Route::post('/convention-characters', [ConventionCharacterController::class, 'store'])->middleware('storyteller');
+    Route::post('/convention-characters/import', [ConventionCharacterController::class, 'import'])->middleware('storyteller');
 });
 
 Route::middleware(['cognito', 'storyteller'])->group(function () {

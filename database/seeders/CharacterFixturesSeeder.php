@@ -15,6 +15,11 @@ use Illuminate\Support\Facades\DB;
  *   org 1 Nation -> org 2 Chapter -> org 3 Venue (GAME) and org 4 Venue (OTHER_GAME)
  *   office 1 storytells GAME, office 2 storytells OTHER_GAME, office 3 is a
  *   chapter office with character_approve (so ancestor scoping is testable).
+ *
+ *   org 5 Venue (CON_GAME, code SPOREBOUND-CON-PAX) hangs straight off the
+ *   Nation; office 5 storytells it. (A national officer would storytell every
+ *   game and break the "no storyteller" mail tests, so ConventionCharacterTest
+ *   adds its own.)
  */
 class CharacterFixturesSeeder extends Seeder
 {
@@ -29,6 +34,9 @@ class CharacterFixturesSeeder extends Seeder
 
     public const OTHER_GAME = 4;
 
+    /** A convention venue: code contains -CON-. */
+    public const CON_GAME = 5;
+
     public const PLAYER = 1;
 
     public const OTHER_PLAYER = 2;
@@ -42,6 +50,8 @@ class CharacterFixturesSeeder extends Seeder
     /** Holds an office with no character role at all. */
     public const BYSTANDER = 6;
 
+    public const CON_ST = 7;
+
     public function run(): void
     {
         DB::table('org_units')->insert([
@@ -49,6 +59,7 @@ class CharacterFixturesSeeder extends Seeder
             $this->unit(self::CHAPTER, 'Test Chapter', 'Chapter', '1.2'),
             $this->unit(self::GAME, 'Sporebound Test Game', 'Venue', '1.2.3'),
             $this->unit(self::OTHER_GAME, 'Sporebound Other Game', 'Venue', '1.2.4'),
+            ['code' => 'SPOREBOUND-CON-PAX'] + $this->unit(self::CON_GAME, 'Sporebound PAX', 'Venue', '1.5'),
         ]);
 
         DB::table('users')->insert([
@@ -58,6 +69,7 @@ class CharacterFixturesSeeder extends Seeder
             $this->user(self::OTHER_ST, 'Other', 'Teller', self::OTHER_GAME),
             $this->user(self::CHAPTER_ST, 'Chapter', 'Teller', self::CHAPTER),
             $this->user(self::BYSTANDER, 'By', 'Stander', self::GAME),
+            $this->user(self::CON_ST, 'Con', 'Teller', self::CON_GAME),
         ]);
 
         DB::table('offices')->insert([
@@ -65,6 +77,7 @@ class CharacterFixturesSeeder extends Seeder
             $this->office(2, 'Other Game Storyteller', self::OTHER_GAME, self::OTHER_ST, ['character_approve']),
             $this->office(3, 'Chapter Owner', self::CHAPTER, self::CHAPTER_ST, ['character_approve', 'org_update']),
             $this->office(4, 'Game Assistant', self::GAME, self::BYSTANDER, ['checkin_event_checkin']),
+            $this->office(5, 'Convention Storyteller', self::CON_GAME, self::CON_ST, ['character_approve']),
         ]);
     }
 
